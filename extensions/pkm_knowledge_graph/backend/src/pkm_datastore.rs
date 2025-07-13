@@ -9,7 +9,7 @@
  * 
  * Key responsibilities:
  * - Defining the core data structures for the knowledge graph (Node, Reference)
- * - Managing the persistence of graph data to/from disk
+ * - Managing the persistence of graph data to/from disk (temporary until petgraph migration)
  * - Processing incoming PKM data and converting it to our internal format
  * - Tracking relationships between nodes (page references, block references, tags)
  * - Maintaining mappings between PKM IDs and our internal IDs

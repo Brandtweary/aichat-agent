@@ -1,14 +1,14 @@
 # Cyberorganism
 
-> This project is a fork of [AIChat](https://github.com/sigoden/aichat), an all-in-one LLM CLI tool. Please visit the original repository at https://github.com/sigoden/aichat for the latest updates to the base project.
+> A self-organizing knowledge graph agent powered by [AIChat](https://github.com/sigoden/aichat)
 
-Cyberorganism is a specialized chat interface for knowledge graphs, built as a fork of [AIChat](https://github.com/sigoden/aichat). It enhances AIChat's capabilities with features specifically designed for interacting with and navigating knowledge graphs.
+Cyberorganism transforms your personal knowledge management system into an intelligent, queryable knowledge graph. By connecting to tools like Logseq, it creates a living network of your ideas that AI agents can navigate and reason through.
 
-All Cyberorganism-specific code is isolated in the `extensions` directory, making it easy to maintain compatibility with the upstream AIChat project. Each extension provides specific functionality that enhances the core capabilities of the base application.
+At its core, Cyberorganism is an LLM agent that understands the deep structure of your knowledge—not just individual notes, but the rich web of connections between them. This enables contextual retrieval and synthesis that goes far beyond traditional RAG systems.
 
-### Available Extensions
+### Key Components
 
-- [PKM Knowledge Graph](./extensions/pkm_knowledge_graph) - Enables AI agents to access and query knowledge graphs populated from Personal Knowledge Management (PKM) tools like Logseq, providing RAG capabilities with the user's personal knowledge base.
+- **[PKM Knowledge Graph](./extensions/pkm_knowledge_graph)** - Syncs with your personal knowledge management tools to build and maintain a graph-based representation of your knowledge, enabling AI agents to traverse relationships and discover insights across your entire knowledge base. Currently supports Logseq integration, with Obsidian support planned based on user interest.
 
 ## Install
 

@@ -1,6 +1,6 @@
 # Cyberorganism Extensions
 
-This directory contains extensions and modifications to the original AIChat codebase for the Cyberorganism fork.
+This directory contains the core components that power Cyberorganism's knowledge graph capabilities.
 
 ## Purpose
 
@@ -15,20 +15,20 @@ The extensions folder is designed to keep our changes contained and clearly sepa
 The extensions directory is organized as follows:
 
 - `README.md` - This documentation file
-- `pkm_knowledge_graph/` - Integration between a Personal Knowledge Management app (PKM) and a knowledge graph
-- (Future subdirectories will be added as needed for specific extension categories)
+- `pkm_knowledge_graph/` - Core knowledge graph integration with personal knowledge management tools
+- `logseq_dummy_graph/` - Sample Logseq graph for testing and development
 
 ## Extensions
 
 ### PKM Knowledge Graph
 
-The `pkm_knowledge_graph` module provides integration between a PKM app and a knowledge graph. It consists of:
+The `pkm_knowledge_graph` module enables Cyberorganism to transform your personal knowledge management system into a queryable knowledge graph. It consists of:
 
-- A Logseq plugin that exports block and page data
-- A Rust backend server that receives and stores the data
-- (Planned) Integration with petgraph for knowledge graph construction
+- A Logseq plugin that syncs block and page data in real-time
+- A Rust backend server that maintains the knowledge graph structure
+- Integration with petgraph for efficient graph operations and traversal
 
-For testing purposes, we use a `logseq_dummy_graph` instance that contains sample data.
+Currently supports Logseq, with Obsidian support planned based on user interest.
 
 #### Configuration
 

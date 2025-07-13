@@ -10,7 +10,7 @@
  * - Setting up and running the HTTP server using the Axum framework
  * - Defining API endpoints for data reception and sync status management
  * - Processing incoming PKM data (blocks, pages, and their references)
- * - Managing the PKMDatastore for persistent storage
+ * - Managing the PKMDatastore for persistent storage (to be replaced with petgraph)
  * - Handling server lifecycle (startup, shutdown, port management)
  * - Configuration loading and management
  * - Process management (PID tracking, termination of previous instances)
