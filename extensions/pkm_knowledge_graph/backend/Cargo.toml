@@ -20,3 +20,11 @@ thiserror = "1.0"
 ctrlc = "3.4.1"
 serde_yaml = "0.9"
 relative-path = "1.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.5", features = ["derive"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tower = "0.5"
+tempfile = "3.0"

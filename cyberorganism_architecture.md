@@ -65,6 +65,16 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
 - Empty blocks are intentionally skipped during sync (not treated as errors)
 - Individual changes sync immediately; full sync runs every 2 hours to catch offline edits
 
+**Process Management**
+The backend server automatically manages its lifecycle:
+- On startup, checks for `pkm_knowledge_graph_server.json` file
+- If found, reads the PID and sends SIGTERM to terminate the previous instance
+- Writes new server info (PID, host, port) to the JSON file
+- On shutdown (Ctrl+C or normal exit), removes the server info file
+- If the configured port is busy, automatically tries alternative ports (3001, 3002, etc.)
+- The JavaScript plugin reads the server info file to discover the actual port in use
+- No manual process management needed - just run `cargo run` to start fresh
+
 ## Data Flow
 
 ### Real-time Sync
@@ -90,12 +100,9 @@ Check Timestamps → Query All Pages/Blocks → Process in Batches → Update Ba
 - API keys
 
 **PKM Extension Config** (`extensions/pkm_knowledge_graph/config.yaml`):
-```yaml
-backend:
-  host: 127.0.0.1
-  port: 3000
-  max_port_attempts: 10
-```
+- Port configuration for the backend server
+- Server always binds to localhost for security
+- See config.yaml file for current options
 
 
 ## Planned Architecture Changes

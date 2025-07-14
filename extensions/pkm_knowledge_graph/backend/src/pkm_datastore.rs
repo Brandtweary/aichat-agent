@@ -50,6 +50,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use thiserror::Error;
+use tracing::{info, warn, error, debug};
 
 /// Errors that can occur when working with the PKM datastore
 #[derive(Error, Debug)]
@@ -210,26 +211,26 @@ impl PKMDatastore {
         // Try to load existing state, but don't fail if it doesn't exist
         match datastore.load_state() {
             Ok(loaded_state) => {
-                println!("Loaded existing datastore state");
+                debug!("Loaded existing datastore state");
                 datastore.state = loaded_state;
                 
                 // Log metadata for debugging
                 if let Some(last_sync) = datastore.state.metadata.last_full_sync {
                     let dt = DateTime::<Utc>::from_timestamp_millis(last_sync)
                         .unwrap_or_else(Utc::now);
-                    println!("Found last sync timestamp: {} ({})", last_sync, dt.to_rfc3339());
+                    debug!("Found last sync timestamp: {} ({})", last_sync, dt.to_rfc3339());
                 } else {
-                    println!("No last sync timestamp found in loaded state");
+                    debug!("No last sync timestamp found in loaded state");
                 }
             },
             Err(e) => {
-                println!("Error loading datastore state: {e:?}");
+                error!("Error loading datastore state: {e:?}");
             }
         }
         
         // Initialize metadata if this is a new datastore
         if datastore.state.metadata.created_at.is_none() {
-            println!("Initializing new datastore");
+                info!("Initializing new datastore");
             let now = Utc::now().timestamp_millis();
             datastore.state.metadata.created_at = Some(now);
             datastore.state.metadata.updated_at = Some(now);
@@ -502,13 +503,13 @@ impl PKMDatastore {
         let now = Utc::now().timestamp_millis();
         
         self.state.metadata.last_full_sync.map_or_else(|| {
-            println!("Full sync needed: No previous sync found");
+            info!("Full sync needed: No previous sync found");
             true
         }, |last_sync| {
             let hours_since_sync = (now - last_sync) / (1000 * 60 * 60);
             let full_sync_needed = hours_since_sync > 2;
             
-            println!("Last sync: {last_sync}, Hours since sync: {hours_since_sync}, Full sync needed: {full_sync_needed}");
+            debug!("Last sync: {last_sync}, Hours since sync: {hours_since_sync}, Full sync needed: {full_sync_needed}");
             
             full_sync_needed
         })
@@ -736,7 +737,7 @@ fn parse_datetime(datetime_str: &str) -> DateTime<Utc> {
     }
     
     // If all parsing attempts fail, log the issue and use current time
-    println!("Warning: Could not parse datetime '{datetime_str}', using current time");
+    warn!("Could not parse datetime '{datetime_str}', using current time");
     Utc::now()
 }
 

@@ -35,9 +35,51 @@
 
 // Import configuration
 const config = require('./config');
+const fs = require('fs');
+const path = require('path');
 
 // Create a global API object to hold all the functions
 window.KnowledgeGraphAPI = {};
+
+// Cache for server info
+let serverInfoCache = null;
+let serverInfoLastChecked = 0;
+const SERVER_INFO_CACHE_MS = 5000; // Cache for 5 seconds
+
+/**
+ * Read server info from the JSON file written by the backend
+ * @returns {Object|null} - Server info or null if not found
+ */
+function readServerInfo() {
+  // Check cache first
+  const now = Date.now();
+  if (serverInfoCache && (now - serverInfoLastChecked) < SERVER_INFO_CACHE_MS) {
+    return serverInfoCache;
+  }
+  
+  try {
+    // Look for server info file in parent directories
+    let currentDir = __dirname;
+    for (let i = 0; i < 4; i++) {
+      const serverInfoPath = path.join(currentDir, 'pkm_knowledge_graph_server.json');
+      
+      if (fs.existsSync(serverInfoPath)) {
+        const serverInfo = JSON.parse(fs.readFileSync(serverInfoPath, 'utf8'));
+        serverInfoCache = serverInfo;
+        serverInfoLastChecked = now;
+        return serverInfo;
+      }
+      
+      const parentDir = path.dirname(currentDir);
+      if (parentDir === currentDir) break;
+      currentDir = parentDir;
+    }
+  } catch (error) {
+    console.error('Error reading server info:', error);
+  }
+  
+  return null;
+}
 
 /**
  * Get the backend URL for a specific endpoint
@@ -45,6 +87,14 @@ window.KnowledgeGraphAPI = {};
  * @returns {string} - The complete backend URL
  */
 window.KnowledgeGraphAPI.getBackendUrl = function(endpoint) {
+  // Try to read actual server info first
+  const serverInfo = readServerInfo();
+  
+  if (serverInfo) {
+    return `http://${serverInfo.host}:${serverInfo.port}${endpoint}`;
+  }
+  
+  // Fall back to config file
   const host = config.backend.host;
   const port = config.backend.port;
   return `http://${host}:${port}${endpoint}`;
@@ -178,8 +228,8 @@ window.KnowledgeGraphAPI.checkIfFullSyncNeeded = async function() {
  */
 window.KnowledgeGraphAPI.updateSyncTimestamp = async function() {
   try {
-    const response = await fetch(window.KnowledgeGraphAPI.getBackendUrl('/sync/update'), {
-      method: 'POST',
+    const response = await fetch(window.KnowledgeGraphAPI.getBackendUrl('/sync'), {
+      method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
       },

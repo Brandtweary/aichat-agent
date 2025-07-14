@@ -1,7 +1,7 @@
 # Knowledge graph backend
 backend/data/*
 !backend/data/.gitkeep
-pkm_knowledge_graph_server.pid
+pkm_knowledge_graph_server.json
 
 # Rust build artifacts
 /backend/target/

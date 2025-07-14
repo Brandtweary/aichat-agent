@@ -9,10 +9,12 @@ cargo test                       # Run all tests
 
 # In extensions/pkm_knowledge_graph/backend/
 cargo build                      # Build backend server
-cargo run --bin backend_server   # Run backend server
+RUST_LOG=info cargo run          # Run backend server
+RUST_LOG=info cargo run -- --duration 3  # Run for 3 seconds (testing)
 ```
 
 ## Architecture
+- See `cyberorganism_architecture.md` for comprehensive codebase architecture
 
 ### Core Directories
 - **src/**: AIChat core - LLM providers, CLI, RAG, function calling (minimize changes)
@@ -34,6 +36,7 @@ cargo run
 
 # Config in extensions/pkm_knowledge_graph/config.yaml
 # Default: localhost:3000, auto-increments if busy
+# Server auto-terminates previous instances - no manual cleanup needed
 ```
 
 ## Development Best Practices
@@ -55,6 +58,7 @@ cargo run
 
 - **Prototype without fallbacks**: When developing new features, avoid default values or fallback mechanisms that mask underlying issues.
 - **Explicit error handling**: Let failures be loud and visible during initial implementation - don't silently continue on errors.
+- **No backwards compatibility**: Keeping deprecated code creates confusion and adds developer burden. Remove old code paths decisively.
 
 ### Eliminate Dead Code
 
@@ -81,3 +85,13 @@ cargo run
 
 - Keep the architecture document (`cyberorganism_architecture.md`) up to date
 - When updating documentation, read it entirely first to avoid redundancy
+
+## Codebase Guidelines
+- Use tracing instead of println! in Rust code
+- API endpoints should be RESTful
+
+# important-instruction-reminders
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
