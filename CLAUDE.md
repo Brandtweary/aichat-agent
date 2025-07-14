@@ -2,13 +2,14 @@
 
 ## Build/Test Commands
 ```bash
-# In project root
+# In cyberorganism root
 cargo check                      # Quick syntax check
 cargo build                      # Build cyberorganism
 cargo test                       # Run all tests
 
 # In extensions/pkm_knowledge_graph/backend/
 cargo build                      # Build backend server
+cargo test                       # Run tests (quiet by default)
 RUST_LOG=info cargo run          # Run backend server
 RUST_LOG=info cargo run -- --duration 3  # Run for 3 seconds (testing)
 ```
@@ -28,16 +29,9 @@ RUST_LOG=info cargo run -- --duration 3  # Run for 3 seconds (testing)
 - **main.rs**: HTTP server with endpoints for data sync and status
 - **pkm_datastore.rs**: JSON storage layer (temporary - migrating to petgraph)
 
-## PKM Backend Operation
-```bash
-# Start backend before using Logseq plugin
-cd extensions/pkm_knowledge_graph/backend
-cargo run
-
-# Config in extensions/pkm_knowledge_graph/config.yaml
-# Default: localhost:3000, auto-increments if busy
-# Server auto-terminates previous instances - no manual cleanup needed
-```
+## Codebase Guidelines
+- Use tracing with appropriate levels (error, warn, etc.) for Rust logging
+- API endpoints should be RESTful
 
 ## Development Best Practices
 
@@ -85,13 +79,3 @@ cargo run
 
 - Keep the architecture document (`cyberorganism_architecture.md`) up to date
 - When updating documentation, read it entirely first to avoid redundancy
-
-## Codebase Guidelines
-- Use tracing instead of println! in Rust code
-- API endpoints should be RESTful
-
-# important-instruction-reminders
-Do what has been asked; nothing more, nothing less.
-NEVER create files unless they're absolutely necessary for achieving your goal.
-ALWAYS prefer editing an existing file to creating a new one.
-NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.

@@ -54,11 +54,12 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
 - **data_processor.js**: Validates and transforms Logseq data before transmission
 
 **Rust Backend Server**
-- **main.rs**: HTTP server with endpoints:
+- **main.rs**: HTTP server with RESTful endpoints:
   - `POST /data`: Receives blocks/pages from Logseq
   - `GET /sync/status`: Returns sync state and statistics
-  - `POST /sync/update`: Updates sync timestamp
+  - `PATCH /sync`: Updates sync timestamp (RESTful design)
 - **pkm_datastore.rs**: Current JSON-based storage layer maintaining nodes, references, and mappings (planned migration to petgraph for direct graph operations)
+- **Logging**: Uses tracing crate with custom formatter optimized for LLM readability (no colors, minimal context)
 
 **Operation Notes**
 - Backend server must be running before loading the Logseq plugin
@@ -124,6 +125,7 @@ Logseq → JS → Rust → Petgraph (in-memory) → Serialization
 
 ## Testing
 
-- JavaScript: Manual testing through Logseq
-- Rust: `cargo test` for backend components
-- Integration: Use `logseq_dummy_graph` for development
+- **JavaScript**: `npm test` - Jest test suite with 23 tests covering data validation and reference extraction (silent by default)
+- **Rust**: `cargo test` - Backend component tests (quiet by default via .cargo/config.toml)
+- **Integration**: RESTful endpoint tests and logseq_dummy_graph for development
+- **Development**: `cargo run -- --duration 3` - Run backend server for testing (auto-exits after specified seconds)
