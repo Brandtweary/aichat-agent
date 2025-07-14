@@ -64,9 +64,11 @@ use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
 
-// Import our datastore module
-mod pkm_datastore;
-use pkm_datastore::{PKMDatastore, PKMBlockData, PKMPageData};
+// Import our modules
+mod pkm_data;
+mod graph_manager;
+use pkm_data::{PKMBlockData, PKMPageData};
+use graph_manager::GraphManager;
 
 /// Custom formatter that conditionally shows file:line only for ERROR and WARN levels
 struct ConditionalLocationFormatter;
@@ -136,7 +138,7 @@ struct Args {
 
 // Application state that will be shared between handlers
 struct AppState {
-    datastore: Mutex<PKMDatastore>,
+    graph_manager: Mutex<GraphManager>,
 }
 
 // Basic response for API calls
@@ -259,11 +261,32 @@ fn terminate_previous_instance() -> bool {
         if let Ok(info) = serde_json::from_str::<ServerInfo>(&info_str) {
             let pid = info.pid.to_string();
         
-        info!("Found previous instance with PID: {pid}");
+        info!("Found server info file with PID: {pid}");
         
-        // Try to terminate the process
+        // First check if the process actually exists
         #[cfg(target_family = "unix")]
         {
+            // Check if process exists using kill -0 (doesn't actually kill)
+            let check_result = Command::new("kill")
+                .arg("-0")
+                .arg(&pid)
+                .output();
+                
+            match check_result {
+                Ok(output) => {
+                    if !output.status.success() {
+                        info!("Process {pid} no longer exists, cleaning up stale PID file");
+                        return false;
+                    }
+                },
+                Err(e) => {
+                    error!("Error checking process: {e}");
+                    return false;
+                }
+            }
+            
+            // Process exists, try to terminate it
+            info!("Process {pid} is running, attempting to terminate");
             let kill_result = Command::new("kill")
                 .arg("-15") // SIGTERM for graceful shutdown
                 .arg(&pid)
@@ -288,6 +311,27 @@ fn terminate_previous_instance() -> bool {
         
         #[cfg(target_family = "windows")]
         {
+            // Check if process exists using tasklist
+            let check_result = Command::new("tasklist")
+                .args(&["/FI", &format!("PID eq {}", pid)])
+                .output();
+                
+            match check_result {
+                Ok(output) => {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    if !output_str.contains(&pid) {
+                        info!("Process {pid} no longer exists, cleaning up stale PID file");
+                        return false;
+                    }
+                },
+                Err(e) => {
+                    error!("Error checking process: {}", e);
+                    return false;
+                }
+            }
+            
+            // Process exists, try to terminate it
+            info!("Process {pid} is running, attempting to terminate");
             let kill_result = Command::new("taskkill")
                 .args(&["/PID", &pid, "/F"])
                 .output();
@@ -348,7 +392,7 @@ async fn root() -> &'static str {
 async fn get_sync_status(
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
-    let status = state.datastore.lock().unwrap().get_sync_status();
+    let status = state.graph_manager.lock().unwrap().get_sync_status();
     Json(status)
 }
 
@@ -356,9 +400,9 @@ async fn get_sync_status(
 async fn update_sync_timestamp(
     State(state): State<Arc<AppState>>,
 ) -> Json<ApiResponse> {
-    let mut datastore = state.datastore.lock().unwrap();
+    let mut graph_manager = state.graph_manager.lock().unwrap();
     
-    match datastore.update_full_sync_timestamp() {
+    match graph_manager.update_full_sync_timestamp() {
         Ok(()) => {
             debug!("Sync timestamp updated successfully");
             Json(ApiResponse {
@@ -397,19 +441,17 @@ fn handle_block_data(state: Arc<AppState>, payload: &str) -> Result<String, Stri
     }
     
     // Process the block data
-    let mut datastore = state.datastore.lock().unwrap();
+    let mut graph_manager = state.graph_manager.lock().unwrap();
     
-    match datastore.create_or_update_node_from_pkm_block(&block_data) {
-        Ok(node_id) => {
-            debug!("Block processed successfully: {node_id}");
-            let result = datastore.save_state()
-                .map_err(|e| format!("Error saving state: {e:?}"));
-            drop(datastore);
-            result?;
+    match graph_manager.create_or_update_node_from_pkm_block(&block_data) {
+        Ok(node_idx) => {
+            debug!("Block processed successfully: {:?}", node_idx);
+            // Note: GraphManager already saves periodically
+            drop(graph_manager);
             Ok("Block processed successfully".to_string())
         },
         Err(e) => {
-            drop(datastore);
+            drop(graph_manager);
             Err(format!("Error processing block: {e:?}"))
         }
     }
@@ -427,19 +469,17 @@ fn handle_page_data(state: Arc<AppState>, payload: &str) -> Result<String, Strin
     }
     
     // Process the page data
-    let mut datastore = state.datastore.lock().unwrap();
+    let mut graph_manager = state.graph_manager.lock().unwrap();
     
-    match datastore.create_or_update_node_from_pkm_page(&page_data) {
-        Ok(node_id) => {
-            debug!("Page processed successfully: {node_id}");
-            let result = datastore.save_state()
-                .map_err(|e| format!("Error saving state: {e:?}"));
-            drop(datastore);
-            result?;
+    match graph_manager.create_or_update_node_from_pkm_page(&page_data) {
+        Ok(node_idx) => {
+            debug!("Page processed successfully: {:?}", node_idx);
+            // Note: GraphManager already saves periodically
+            drop(graph_manager);
             Ok("Page processed successfully".to_string())
         },
         Err(e) => {
-            drop(datastore);
+            drop(graph_manager);
             Err(format!("Error processing page: {e:?}"))
         }
     }
@@ -470,13 +510,13 @@ fn handle_batch_blocks(state: Arc<AppState>, payload: &str) -> Result<String, St
     let mut error_count = 0;
     let total_blocks = blocks.len();
     
-    // Get a single lock on the datastore for the entire batch
-    let mut datastore = state.datastore.lock().unwrap();
+    // Get a single lock on the graph for the entire batch
+    let mut graph_manager = state.graph_manager.lock().unwrap();
     
     for block_data in blocks {
         // Validate and process each block
         if block_data.validate().is_ok() {
-            match datastore.create_or_update_node_from_pkm_block(&block_data) {
+            match graph_manager.create_or_update_node_from_pkm_block(&block_data) {
                 Ok(_) => {
                     success_count += 1;
                 },
@@ -489,15 +529,15 @@ fn handle_batch_blocks(state: Arc<AppState>, payload: &str) -> Result<String, St
         }
     }
     
-    // Save state once after processing the entire batch
+    // GraphManager saves periodically, but force save after batch
     if success_count > 0 {
-        if let Err(e) = datastore.save_state() {
-            error!("Error saving state after batch processing: {e:?}");
+        if let Err(e) = graph_manager.save_graph() {
+            error!("Error saving graph after batch processing: {e:?}");
         }
     }
     
     // Release the lock
-    drop(datastore);
+    drop(graph_manager);
     
     // Report results
     if error_count == 0 {
@@ -521,13 +561,13 @@ fn handle_batch_pages(state: Arc<AppState>, payload: &str) -> Result<String, Str
     let mut error_count = 0;
     let total_pages = pages.len();
     
-    // Get a single lock on the datastore for the entire batch
-    let mut datastore = state.datastore.lock().unwrap();
+    // Get a single lock on the graph for the entire batch
+    let mut graph_manager = state.graph_manager.lock().unwrap();
     
     for page_data in pages {
         // Validate and process each page
         if page_data.validate().is_ok() {
-            match datastore.create_or_update_node_from_pkm_page(&page_data) {
+            match graph_manager.create_or_update_node_from_pkm_page(&page_data) {
                 Ok(_) => {
                     success_count += 1;
                 },
@@ -540,15 +580,15 @@ fn handle_batch_pages(state: Arc<AppState>, payload: &str) -> Result<String, Str
         }
     }
     
-    // Save state once after processing the entire batch
+    // GraphManager saves periodically, but force save after batch
     if success_count > 0 {
-        if let Err(e) = datastore.save_state() {
-            error!("Error saving state after batch processing: {e:?}");
+        if let Err(e) = graph_manager.save_graph() {
+            error!("Error saving graph after batch processing: {e:?}");
         }
     }
     
     // Release the lock
-    drop(datastore);
+    drop(graph_manager);
     
     // Report results
     if error_count == 0 {
@@ -683,14 +723,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let _ = fs::remove_file(SERVER_INFO_FILE);
     }
     
-    // Initialize the datastore
+    // Initialize the graph manager
     let data_dir = PathBuf::from("data");
-    let datastore = PKMDatastore::new(data_dir)
-        .map_err(|e| Box::<dyn Error>::from(format!("Datastore error: {e:?}")))?;
+    let graph_manager = GraphManager::new(data_dir)
+        .map_err(|e| Box::<dyn Error>::from(format!("Graph manager error: {e:?}")))?;
     
     // Create shared application state
     let app_state = Arc::new(AppState {
-        datastore: Mutex::new(datastore),
+        graph_manager: Mutex::new(graph_manager),
     });
     
     // Define the application routes

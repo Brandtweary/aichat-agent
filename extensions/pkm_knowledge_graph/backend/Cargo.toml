@@ -23,6 +23,7 @@ relative-path = "1.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4.5", features = ["derive"] }
+petgraph = { version = "0.6", features = ["serde-1"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }

@@ -2,6 +2,19 @@
  * @module index
  * @description Main entry point for the Logseq Knowledge Graph Plugin
  * 
+ * CRITICAL WARNING FOR LLM ASSISTANTS:
+ * =====================================
+ * This is a BROWSER-BASED Logseq plugin. DO NOT use Node.js features like:
+ * - require() or import statements
+ * - module.exports
+ * - fs, path, or any Node.js modules
+ * 
+ * All dependencies are loaded via <script> tags in index.html and exposed as globals.
+ * Breaking this plugin makes it very difficult to debug due to Logseq's opaque error handling.
+ * 
+ * DO NOT make "improvements" or "modernizations" without explicit user request.
+ * This code works as-is. Random changes have broken production systems before.
+ * 
  * This module orchestrates the entire plugin functionality, connecting Logseq to a Rust-based 
  * knowledge graph backend. It handles initialization, event registration, data synchronization,
  * and communication between the Logseq frontend and the Rust backend server.
@@ -26,14 +39,8 @@
  * - Checks if a full sync is needed on startup
  * 
  * Dependencies:
- * - api.js: Handles all HTTP communication with the backend
- * - data_processor.js: Processes and validates Logseq data
- * - config.js: Contains configuration settings
- * 
- * @requires api
- * @requires config
- * @requires KnowledgeGraphAPI
- * @requires KnowledgeGraphDataProcessor
+ * - api.js: Handles all HTTP communication with the backend (loaded as KnowledgeGraphAPI global)
+ * - data_processor.js: Processes and validates Logseq data (loaded as KnowledgeGraphDataProcessor global)
  */
 
 /**
@@ -41,13 +48,8 @@
  * Connects Logseq to a Rust-based knowledge graph backend
  */
 
-// Import the API module
-const api = require('./api');
-// Import configuration
-const config = require('./config');
-
-// Load the API module for backend communication
-// We'll use a script tag in the HTML to load api.js before this file
+// The API and config are loaded via script tags in index.html
+// They are available as global objects: KnowledgeGraphAPI and KnowledgeGraphDataProcessor
 
 //=============================================================================
 // LOGSEQ API INTERACTION
@@ -452,6 +454,21 @@ async function updateSyncTimestamp() {
 // Main function for plugin logic
 async function main() {
   console.log('Knowledge Graph Plugin initializing...');
+  
+  // Check if required global objects are available
+  if (typeof window.KnowledgeGraphAPI === 'undefined') {
+    console.error('ERROR: KnowledgeGraphAPI not found! api.js may not have loaded properly.');
+    logseq.App.showMsg('Plugin initialization failed: API module not loaded', 'error');
+    return;
+  }
+  
+  if (typeof window.KnowledgeGraphDataProcessor === 'undefined') {
+    console.error('ERROR: KnowledgeGraphDataProcessor not found! data_processor.js may not have loaded properly.');
+    logseq.App.showMsg('Plugin initialization failed: Data processor module not loaded', 'error');
+    return;
+  }
+  
+  console.log('All required modules loaded successfully.');
 
   // Register a command to check sync status
   logseq.Editor.registerSlashCommand('Check Sync Status', async () => {

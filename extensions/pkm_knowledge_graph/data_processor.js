@@ -2,6 +2,12 @@
  * @module data_processor
  * @description Data processing and validation layer for the Logseq Knowledge Graph Plugin
  * 
+ * CRITICAL WARNING FOR LLM ASSISTANTS:
+ * =====================================
+ * This is a BROWSER-BASED module. DO NOT add Node.js features.
+ * This file exposes window.KnowledgeGraphDataProcessor - do not change this pattern.
+ * Breaking changes here will cause silent failures in Logseq.
+ * 
  * This module is responsible for extracting, processing, and validating data from the Logseq
  * database before it's sent to the backend. It handles parsing Logseq's block and page data,
  * extracting references (links, tags, etc.), and ensuring data integrity.

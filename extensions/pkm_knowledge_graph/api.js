@@ -2,6 +2,12 @@
  * @module api
  * @description Communication layer for the Logseq Knowledge Graph Plugin
  * 
+ * CRITICAL WARNING FOR LLM ASSISTANTS:
+ * =====================================
+ * This is a BROWSER-BASED module. DO NOT add Node.js features.
+ * This file exposes window.KnowledgeGraphAPI - do not change this pattern.
+ * Breaking changes here will cause silent failures in Logseq.
+ * 
  * This module provides a comprehensive API for all communication between the Logseq frontend
  * and the Rust backend server. It handles constructing API endpoints, sending data, checking
  * server availability, and managing sync operations.
@@ -33,13 +39,10 @@
  * @requires config
  */
 
-// Import configuration
-const config = require('./config');
-const fs = require('fs');
-const path = require('path');
-
 // Create a global API object to hold all the functions
+console.log('Loading KnowledgeGraphAPI module...');
 window.KnowledgeGraphAPI = {};
+console.log('KnowledgeGraphAPI module loaded successfully.');
 
 // Cache for server info
 let serverInfoCache = null;
@@ -94,10 +97,8 @@ window.KnowledgeGraphAPI.getBackendUrl = function(endpoint) {
     return `http://${serverInfo.host}:${serverInfo.port}${endpoint}`;
   }
   
-  // Fall back to config file
-  const host = config.backend.host;
-  const port = config.backend.port;
-  return `http://${host}:${port}${endpoint}`;
+  // Fall back to hardcoded values
+  return `http://127.0.0.1:3000${endpoint}`;
 };
 
 /**
