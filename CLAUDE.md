@@ -11,7 +11,7 @@ cargo test                       # Run all tests
 cargo build                      # Build backend server
 cargo test                       # Run tests (quiet by default)
 RUST_LOG=info cargo run          # Run backend server
-RUST_LOG=info cargo run -- --duration 3  # Run for 3 seconds (testing)
+RUST_LOG=info cargo run -- --duration 3  # Run for 3 seconds (testing/validation), --duration 30 for user operations
 ```
 
 ## Architecture
@@ -27,7 +27,8 @@ RUST_LOG=info cargo run -- --duration 3  # Run for 3 seconds (testing)
 
 ### PKM Backend Structure (extensions/pkm_knowledge_graph/backend/)
 - **main.rs**: HTTP server with endpoints for data sync and status
-- **pkm_datastore.rs**: JSON storage layer (temporary - migrating to petgraph)
+- **graph_manager.rs**: Petgraph-based knowledge graph storage engine
+- **pkm_data.rs**: Shared data structures and validation logic
 
 ## Codebase Guidelines
 - Use tracing with appropriate levels (error, warn, etc.) for Rust logging

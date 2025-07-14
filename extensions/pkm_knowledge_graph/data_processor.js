@@ -83,9 +83,10 @@ window.KnowledgeGraphDataProcessor.extractReferencesFromContent = function(conte
   const propRegex = /([a-zA-Z0-9_-]+)::\s*(.*?)($|\n)/g;
   while ((match = propRegex.exec(content)) !== null) {
     const propName = match[1].trim();
-    const propValue = match[2].trim();
+    // Note: propValue is not used here as we only extract the key as a reference
+    // The full key-value pairs are sent via the structured properties field
     
-    // The property name itself is a reference
+    // The property key is treated as a page reference (e.g., "status" implies a "status" page)
     references.push({
       type: 'property',
       name: propName
@@ -141,7 +142,7 @@ window.KnowledgeGraphDataProcessor.processBlockData = async function(block) {
           }
         } catch (e) {
           // Only log actual errors
-          console.warn(`Could not resolve parent ID ${blockEntity.parent.id} to UUID for block ${blockEntity.uuid}`);
+          console.error(`Could not resolve parent ID ${blockEntity.parent.id} to UUID for block ${blockEntity.uuid}`);
         }
       }
     }

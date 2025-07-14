@@ -4,11 +4,13 @@ A guide to core modules, system design, and data flow for developers.
 
 ## Recent Updates
 
-### Documentation Overhaul
-**Status**: Completed comprehensive documentation update
-- **Architecture Document**: Created `cyberorganism_architecture.md` to provide clear system overview and component relationships
-- **Developer Guide**: Established `CLAUDE.md` with essential build commands and development best practices
-- **TODO Tracking**: Organized future improvements in `notes/PKM_Knowledge_Graph_TODO.md` with `#maybe` tags for uncertain items
+### Petgraph Integration Complete
+**Status**: Replaced JSON datastore with direct petgraph implementation
+- **GraphManager Module**: New core component managing knowledge graph using petgraph's StableGraph
+- **Direct Graph Storage**: Eliminated intermediate JSON layer - PKM data now stored directly as graph nodes
+- **Improved Sync**: Fixed critical bugs preventing block synchronization (0→74 blocks)
+- **Batch Optimization**: Disabled auto-save during batch processing to prevent interleaved saves
+- **Comprehensive Testing**: 23 JavaScript tests, Rust unit tests, and integration tests all passing
 
 ## System Overview
 
@@ -33,7 +35,8 @@ cyberorganism/
 │   │   ├── backend/               # Rust knowledge graph server
 │   │   │   ├── src/
 │   │   │   │   ├── main.rs        # HTTP server and endpoints
-│   │   │   │   └── pkm_datastore.rs  # Graph storage (migrating to petgraph)
+│   │   │   │   ├── graph_manager.rs # Petgraph-based knowledge graph storage
+│   │   │   │   └── pkm_data.rs     # Data structures and validation
 │   │   │   └── Cargo.toml
 │   │   └── package.json
 │   └── logseq_dummy_graph/        # Test data
@@ -55,11 +58,18 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
 
 **Rust Backend Server**
 - **main.rs**: HTTP server with RESTful endpoints:
-  - `POST /data`: Receives blocks/pages from Logseq
-  - `GET /sync/status`: Returns sync state and statistics
-  - `PATCH /sync`: Updates sync timestamp (RESTful design)
-- **pkm_datastore.rs**: Current JSON-based storage layer maintaining nodes, references, and mappings (planned migration to petgraph for direct graph operations)
-- **Logging**: Uses tracing crate with custom formatter optimized for LLM readability (no colors, minimal context)
+  - `POST /data`: Receives blocks/pages from Logseq (supports both individual items and batches)
+  - `GET /sync/status`: Returns sync state and graph statistics (node count, edge count)
+  - `PATCH /sync`: Updates sync timestamp after full sync
+- **graph_manager.rs**: Core graph storage using petgraph:
+  - StableGraph structure maintains consistent node indices across modifications
+  - Node types: Page and Block with full metadata (content, properties, timestamps)
+  - Edge types: PageRef, BlockRef, Tag, Property, ParentChild, PageToBlock
+  - HashMap for O(1) PKM ID → NodeIndex lookups
+  - Automatic saves: time-based (5 min) or operation-based (10 ops), disabled during batches
+  - Graph persistence to `knowledge_graph.json` with full serialization
+- **pkm_data.rs**: Shared data structures and validation logic
+- **Logging**: Uses tracing crate with conditional formatter (file:line only for WARN/ERROR)
 
 **Operation Notes**
 - Backend server must be running before loading the Logseq plugin
@@ -88,10 +98,19 @@ Logseq DB Change → onChanged Event → Validate Data → Batch Queue → HTTP 
 Check Timestamps → Query All Pages/Blocks → Process in Batches → Update Backend → Update Sync Timestamp
 ```
 
-### Data Structures
-- **Nodes**: Pages and blocks with content, timestamps, and properties
-- **References**: Page links, block references, tags, and parent-child relationships
-- **Mappings**: PKM IDs to internal node IDs for consistent graph structure
+### Graph Structure
+**Nodes** (petgraph vertices):
+- **Page Nodes**: Created from Logseq pages (name, properties, timestamps)
+- **Block Nodes**: Created from Logseq blocks (content, properties, parent reference)
+- **Tag Nodes**: Automatically created pages from #tags (without # prefix)
+
+**Edges** (typed relationships):
+- **PageRef**: Block/page references another page via [[Page Name]]
+- **BlockRef**: Block references another block via ((block-id))
+- **Tag**: Block/page uses a #tag
+- **Property**: Block/page has property key (key:: value creates edge to key page)
+- **ParentChild**: Hierarchical relationship between blocks
+- **PageToBlock**: Links page to its root-level blocks
 
 ## Configuration
 
@@ -108,20 +127,20 @@ Check Timestamps → Query All Pages/Blocks → Process in Batches → Update Ba
 
 ## Planned Architecture Changes
 
-### Petgraph Migration
-- Remove intermediate JSON datastore
-- Store all node/edge data directly in petgraph
-- Implement efficient graph algorithms
-- Add periodic serialization for persistence
+### Graph Algorithms and Analysis
+- Implement Personalized PageRank (PPR) for similarity ranking
+- Add graph visualization endpoint for debugging
+- CLI flag for graph structure analysis (load, analyze, exit)
 
-This will simplify the architecture from:
-```
-Logseq → JS → Rust → JSON Datastore → Query Layer
-```
-To:
-```
-Logseq → JS → Rust → Petgraph (in-memory) → Serialization
-```
+### Enhanced Persistence
+- Write-Ahead Log (WAL) for crash recovery
+- Tiered backup retention (hourly/daily/weekly/monthly snapshots)
+- Graph compression for disk storage
+
+### Process Automation
+- Automate Logseq launch when backend starts
+- Ensure plugin is loaded and enabled automatically
+- Handle graceful Logseq shutdown when server stops
 
 ## Testing
 

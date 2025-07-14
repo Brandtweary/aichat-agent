@@ -1,3 +1,52 @@
+/**
+ * @module graph_manager
+ * @description Core knowledge graph storage engine using petgraph
+ * 
+ * This module is the heart of Cyberorganism's knowledge graph implementation, providing
+ * direct graph storage using petgraph's StableGraph structure. All PKM data (pages and 
+ * blocks from Logseq) are stored as nodes in a directed graph with typed edges 
+ * representing various relationships.
+ * 
+ * Key design decisions:
+ * - StableGraph over Graph: Maintains consistent NodeIndex values even after node removals
+ * - HashMap for PKM ID lookups: O(1) access to nodes by their original identifiers
+ * - Node metadata storage: Properties stored on nodes, not edges, for performance
+ * - Auto-save mechanism: Time-based (5 min) or operation-based (10 ops) with batch disable
+ * - Full graph serialization: Entire graph structure persisted to knowledge_graph.json
+ * 
+ * Graph structure:
+ * - Nodes: Page and Block types with full metadata (content, properties, timestamps)
+ * - Edges: PageRef, BlockRef, Tag, Property, ParentChild, PageToBlock relationships
+ * - Automatic node creation: Tags and property keys create implicit page nodes
+ * 
+ * Performance characteristics:
+ * - Node creation/update: O(1) with HashMap lookup
+ * - Edge creation: O(1) for direct relationships
+ * - Graph save: O(V + E) where V = vertices, E = edges
+ * - Graph load: O(V + E) deserialization
+ * 
+ * Batch processing:
+ * - disable_auto_save(): Prevents interleaved saves during bulk operations
+ * - enable_auto_save(): Re-enables after batch completion
+ * - Manual save_graph() call after batch ensures data persistence
+ * 
+ * Error handling:
+ * - GraphError enum for typed errors (IO, Serialization, ReferenceResolution)
+ * - All public methods return GraphResult<T> for consistent error propagation
+ * - Reference resolution failures logged but don't abort processing
+ * 
+ * Future enhancements:
+ * - Graph algorithms: PageRank, similarity scoring, path finding
+ * - Incremental updates: Track and save only modified nodes/edges
+ * - Compression: Reduce disk footprint for large graphs
+ * - WAL: Write-ahead logging for crash recovery
+ * 
+ * @requires petgraph - Graph data structure library
+ * @requires serde - Serialization framework
+ * @requires chrono - Date/time handling
+ * @requires tracing - Structured logging
+ */
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
@@ -47,7 +96,7 @@ pub enum NodeType {
 /// Data stored in each graph node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeData {
-    /// Our internal unique identifier (same as datastore for compatibility)
+    /// Our internal unique identifier
     pub id: String,
     
     /// Original PKM identifier (UUID for blocks, name for pages)
@@ -129,6 +178,9 @@ pub struct GraphManager {
     
     /// Number of operations since last save (for operation-based saves)
     operations_since_save: usize,
+    
+    /// Whether to perform automatic saves during operations (disabled during batch processing)
+    auto_save_enabled: bool,
 }
 
 impl GraphManager {
@@ -146,6 +198,7 @@ impl GraphManager {
             last_full_sync: None,
             last_save_time: Utc::now(),
             operations_since_save: 0,
+            auto_save_enabled: true,
         };
         
         // Try to load existing graph
@@ -252,13 +305,23 @@ impl GraphManager {
     
     /// Save if needed based on time or operation count
     fn save_if_needed(&mut self) {
-        if self.should_save() {
+        if self.auto_save_enabled && self.should_save() {
             if let Err(e) = self.save_graph() {
                 error!("Error during automatic save: {}", e);
             } else {
                 debug!("Automatic save completed");
             }
         }
+    }
+    
+    /// Disable automatic saves (useful during batch processing)
+    pub fn disable_auto_save(&mut self) {
+        self.auto_save_enabled = false;
+    }
+    
+    /// Enable automatic saves (default state)
+    pub fn enable_auto_save(&mut self) {
+        self.auto_save_enabled = true;
     }
     
     /// Get a node by its PKM ID
@@ -608,7 +671,6 @@ fn parse_properties(properties_json: &serde_json::Value) -> HashMap<String, Stri
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    use petgraph::visit::EdgeRef;
     
     /// Create a test GraphManager with a temporary directory
     fn create_test_manager() -> (GraphManager, TempDir) {

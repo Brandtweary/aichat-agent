@@ -33,10 +33,9 @@
  * - sendBatchToBackend(type, batch, graphName): Sends a batch of blocks or pages
  * 
  * Dependencies:
- * - config.js: Contains backend configuration (host, port)
  * - Logseq API: For displaying messages and getting graph information
  * 
- * @requires config
+ * Note: Port configuration is discovered dynamically to match the Rust server's port discovery logic
  */
 
 // Create a global API object to hold all the functions
@@ -53,7 +52,12 @@ const SERVER_INFO_CACHE_MS = 5000; // Cache for 5 seconds
  * Read server info from the JSON file written by the backend
  * @returns {Object|null} - Server info or null if not found
  */
-function readServerInfo() {
+/**
+ * Discover the backend server port by trying the same ports the Rust server uses
+ * This duplicates the server's port discovery logic to ensure they find the same port
+ * @returns {Promise<Object|null>} - Server info or null if not found
+ */
+async function discoverServerPort() {
   // Check cache first
   const now = Date.now();
   if (serverInfoCache && (now - serverInfoLastChecked) < SERVER_INFO_CACHE_MS) {
@@ -61,24 +65,43 @@ function readServerInfo() {
   }
   
   try {
-    // Look for server info file in parent directories
-    let currentDir = __dirname;
-    for (let i = 0; i < 4; i++) {
-      const serverInfoPath = path.join(currentDir, 'pkm_knowledge_graph_server.json');
+    // Use the same port discovery logic as the Rust server:
+    // - Start with default port 3000
+    // - Try up to 10 additional ports (3000-3010)
+    // - This matches the server's max_port_attempts configuration
+    const defaultPort = 3000;
+    const maxPortAttempts = 10;
+    
+    for (let i = 0; i <= maxPortAttempts; i++) {
+      const port = defaultPort + i;
       
-      if (fs.existsSync(serverInfoPath)) {
-        const serverInfo = JSON.parse(fs.readFileSync(serverInfoPath, 'utf8'));
-        serverInfoCache = serverInfo;
-        serverInfoLastChecked = now;
-        return serverInfo;
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(500) // Quick timeout to try multiple ports
+        });
+        
+        if (response.ok) {
+          console.log(`Found backend server on port ${port}`);
+          // Server is responding, cache this port info
+          const serverInfo = {
+            host: '127.0.0.1',
+            port: port,
+            discovered: true
+          };
+          serverInfoCache = serverInfo;
+          serverInfoLastChecked = now;
+          return serverInfo;
+        }
+      } catch {
+        // Try next port
+        continue;
       }
-      
-      const parentDir = path.dirname(currentDir);
-      if (parentDir === currentDir) break;
-      currentDir = parentDir;
     }
+    
+    console.warn('No backend server found on any expected port (3000-3010)');
   } catch (error) {
-    console.error('Error reading server info:', error);
+    console.error('Error discovering server port:', error);
   }
   
   return null;
@@ -89,15 +112,15 @@ function readServerInfo() {
  * @param {string} endpoint - The endpoint path (e.g., '/data', '/')
  * @returns {string} - The complete backend URL
  */
-window.KnowledgeGraphAPI.getBackendUrl = function(endpoint) {
-  // Try to read actual server info first
-  const serverInfo = readServerInfo();
+window.KnowledgeGraphAPI.getBackendUrl = async function(endpoint) {
+  // Try to discover the server port
+  const serverInfo = await discoverServerPort();
   
   if (serverInfo) {
     return `http://${serverInfo.host}:${serverInfo.port}${endpoint}`;
   }
   
-  // Fall back to hardcoded values
+  // Fall back to default port (most common case)
   return `http://127.0.0.1:3000${endpoint}`;
 };
 
@@ -107,7 +130,7 @@ window.KnowledgeGraphAPI.getBackendUrl = function(endpoint) {
  * @returns {Promise<boolean>} - Whether the data was sent successfully
  */
 window.KnowledgeGraphAPI.sendToBackend = async function(data) {
-  const backendUrl = window.KnowledgeGraphAPI.getBackendUrl('/data');
+  const backendUrl = await window.KnowledgeGraphAPI.getBackendUrl('/data');
   
   try {
     console.log(`Sending data to backend: ${backendUrl}`);
@@ -161,13 +184,13 @@ window.KnowledgeGraphAPI.sendDiagnosticInfo = async function(message, details = 
 }
 
 /**
- * Check if backend server is available
+ * Check if backend server is available (single attempt)
  * @returns {Promise<boolean>} - Whether the backend server is available
  */
 window.KnowledgeGraphAPI.checkBackendAvailability = async function() {
   console.log('Checking backend server availability...');
   try {
-    const response = await fetch(window.KnowledgeGraphAPI.getBackendUrl('/'), {
+    const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/'), {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -179,6 +202,32 @@ window.KnowledgeGraphAPI.checkBackendAvailability = async function() {
     console.error('Error checking backend availability:', error);
     return false;
   }
+}
+
+/**
+ * Check if backend server is available with retry logic
+ * @param {number} maxRetries - Maximum number of retry attempts (default: 3)
+ * @param {number} retryDelayMs - Delay between retries in milliseconds (default: 1000)
+ * @returns {Promise<boolean>} - Whether the backend server is available
+ */
+window.KnowledgeGraphAPI.checkBackendAvailabilityWithRetry = async function(maxRetries = 3, retryDelayMs = 1000) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const isAvailable = await this.checkBackendAvailability();
+    if (isAvailable) {
+      if (attempt > 0) {
+        console.log(`Backend available after ${attempt} retry attempts`);
+      }
+      return true;
+    }
+    
+    if (attempt < maxRetries) {
+      console.log(`Backend not available, retrying in ${retryDelayMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    }
+  }
+  
+  console.error(`Backend not available after ${maxRetries} retry attempts`);
+  return false;
 }
 
 /**
@@ -196,7 +245,7 @@ window.KnowledgeGraphAPI.checkIfFullSyncNeeded = async function() {
     }
     
     // Query the backend for sync status
-    const response = await fetch(window.KnowledgeGraphAPI.getBackendUrl('/sync/status'), {
+    const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/sync/status'), {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -229,7 +278,7 @@ window.KnowledgeGraphAPI.checkIfFullSyncNeeded = async function() {
  */
 window.KnowledgeGraphAPI.updateSyncTimestamp = async function() {
   try {
-    const response = await fetch(window.KnowledgeGraphAPI.getBackendUrl('/sync'), {
+    const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/sync'), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',

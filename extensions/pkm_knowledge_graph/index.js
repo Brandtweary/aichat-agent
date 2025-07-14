@@ -55,27 +55,6 @@
 // LOGSEQ API INTERACTION
 //=============================================================================
 
-// Test the Logseq API connection
-async function testLogseqAPI() {
-  console.log('Attempting to call Logseq API...');
-  try {
-    const graph = await logseq.App.getCurrentGraph();
-    if (graph) {
-      console.log('Successfully retrieved current graph:', graph.name);
-      logseq.App.showMsg(`Connected to graph: ${graph.name}`, 'success');
-      return graph;
-    } else {
-      console.error('Failed to get current graph, API returned null.');
-      logseq.App.showMsg('Failed to get graph info.', 'error');
-      return null;
-    }
-  } catch (error) {
-    console.error('Error calling Logseq API:', error);
-    logseq.App.showMsg('Error interacting with Logseq API.', 'error');
-    return null;
-  }
-}
-
 //=============================================================================
 // BACKEND COMMUNICATION
 // These functions now use the global KnowledgeGraphAPI object
@@ -91,6 +70,12 @@ async function sendDiagnosticInfo(message, details = {}) {
 async function checkBackendAvailability() {
   // Use the global KnowledgeGraphAPI object's checkBackendAvailability function
   return KnowledgeGraphAPI.checkBackendAvailability();
+}
+
+// Check if backend server is available with retry logic
+async function checkBackendAvailabilityWithRetry(maxRetries = 3, retryDelayMs = 1000) {
+  // Use the global KnowledgeGraphAPI object's checkBackendAvailabilityWithRetry function
+  return KnowledgeGraphAPI.checkBackendAvailabilityWithRetry(maxRetries, retryDelayMs);
 }
 
 //=============================================================================
@@ -206,11 +191,11 @@ async function handleDBChanges(changes) {
   
   console.log(`Received ${changes.length} database changes`);
   
-  // Check if backend is available before processing changes
+  // Check if backend is available before processing changes (light retry for real-time)
   try {
-    const backendAvailable = await checkBackendAvailability();
+    const backendAvailable = await checkBackendAvailabilityWithRetry(1, 500);
     if (!backendAvailable) {
-      console.error('Backend server not available. Changes will not be processed.');
+      console.error('Backend server not available. Real-time changes will not be processed.');
       return;
     }
     
@@ -227,12 +212,12 @@ async function handleDBChanges(changes) {
     for (const change of changes) {
       // Process block changes
       if (change.blocks && change.blocks.length > 0) {
-        await processBatch('block', change.blocks, graphName, 20); // Smaller batch size for real-time
+        await processBatch('block', change.blocks, graphName, 100);
       }
       
       // Process page changes  
       if (change.pages && change.pages.length > 0) {
-        await processBatch('page', change.pages, graphName, 20);
+        await processBatch('page', change.pages, graphName, 100);
       }
     }
   } catch (error) {
@@ -248,11 +233,11 @@ async function handleDBChanges(changes) {
 async function syncFullDatabase() {
   console.log('Starting full database sync...');
   
-  // Check if backend is available
-  const backendAvailable = await checkBackendAvailability();
+  // Check if backend is available with retry logic for critical full sync
+  const backendAvailable = await checkBackendAvailabilityWithRetry(3, 2000);
   if (!backendAvailable) {
-    console.error('Backend server not available. Sync aborted.');
-    logseq.App.showMsg('Backend server not available. Start the server first.', 'error');
+    console.error('Backend server not available after retries. Sync aborted.');
+    logseq.App.showMsg('Backend server not available after retries. Start the server first.', 'error');
     return false;
   }
   
@@ -285,37 +270,25 @@ async function syncFullDatabase() {
     let pagesProcessed = 0;
     let blocksProcessed = 0;
     
+    // Shared block batch for efficient processing across all pages
+    const globalBlockBatch = [];
+    
     // Process pages in batches
     for (let i = 0; i < allPages.length; i += 100) {
       const pageBatch = allPages.slice(i, i + 100);
       
-      // Skip older journal pages if there are many pages
-      const filteredBatch = pageBatch.filter(page => {
-        if (page.journalDay && allPages.length > 100) {
-          const pageDate = new Date(page.journalDay);
-          const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          
-          if (pageDate < thirtyDaysAgo) {
-            console.log(`Skipping older journal page: ${page.name}`);
-            return false;
-          }
-        }
-        return true;
-      });
-      
-      await processBatch('page', filteredBatch, graphName);
-      pagesProcessed += filteredBatch.length;
+      await processBatch('page', pageBatch, graphName);
+      pagesProcessed += pageBatch.length;
       
       if (pagesProcessed % 10 === 0) {
         logseq.App.showMsg(`Syncing pages: ${pagesProcessed}/${allPages.length}`, 'info');
       }
       
       // Process blocks for these pages
-      for (const page of filteredBatch) {
+      for (const page of pageBatch) {
         const pageBlocksTree = await logseq.Editor.getPageBlocksTree(page.name);
         if (pageBlocksTree) {
-          await processBlocksRecursively(pageBlocksTree, graphName, [], 100);
+          await processBlocksRecursively(pageBlocksTree, graphName, globalBlockBatch, 100);
           const pageBlockCount = countBlocksInTree(pageBlocksTree);
           blocksProcessed += pageBlockCount;
           
@@ -324,6 +297,13 @@ async function syncFullDatabase() {
           }
         }
       }
+    }
+    
+    // Send any remaining blocks in the final batch
+    if (globalBlockBatch.length > 0) {
+      console.log(`Sending final batch of ${globalBlockBatch.length} blocks`);
+      await sendBatchToBackend('block', globalBlockBatch.slice(), graphName);
+      globalBlockBatch.splice(0); // Clear for consistency
     }
 
     // Display validation summary if there were issues
@@ -344,8 +324,7 @@ async function syncFullDatabase() {
       logseq.App.showMsg('Full database sync completed successfully!', 'success');
     }
     
-    // Update sync timestamp
-    await updateSyncTimestamp();
+    // Update sync timestamp (moved to success handler to avoid duplicate calls)
     
     // --- Summary Log ---
     // Print a summary indicating how many pages and blocks were updated and errors
@@ -391,8 +370,8 @@ async function processBlocksRecursively(blocks, graphName, blockBatch, batchSize
         
         // Send batch if it reaches the batch size
         if (blockBatch.length >= batchSize) {
-          await sendBatchToBackend('block', blockBatch, graphName);
-          blockBatch.length = 0; // Reset batch more efficiently
+          await sendBatchToBackend('block', blockBatch.slice(), graphName);
+          blockBatch.splice(0); // Clear array safely
         }
       } else {
         console.error(`Invalid block data for ${block.uuid}:`, validation.errors);
@@ -474,16 +453,16 @@ async function main() {
   logseq.Editor.registerSlashCommand('Check Sync Status', async () => {
     logseq.App.showMsg('Checking sync status...', 'info');
     
-    // Test backend availability
-    const backendAvailable = await checkBackendAvailability();
+    // Test backend availability with retry for user-initiated check
+    const backendAvailable = await checkBackendAvailabilityWithRetry(2, 1000);
     if (!backendAvailable) {
-      logseq.App.showMsg('Backend server not available. Start the server first.', 'error');
+      logseq.App.showMsg('Backend server not available after retries. Start the server first.', 'error');
       return;
     }
     
     // Get sync status from backend
     try {
-      const response = await fetch(window.KnowledgeGraphAPI.getBackendUrl('/sync/status'), {
+      const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/sync/status'), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

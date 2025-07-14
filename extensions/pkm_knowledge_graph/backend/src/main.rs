@@ -58,6 +58,7 @@ use std::net::TcpListener;
 use std::error::Error;
 use std::fs;
 use std::time::Duration;
+use regex::Regex;
 use tracing::{info, warn, error, debug, Level};
 use clap::Parser;
 use tracing_subscriber::fmt::format::Writer;
@@ -244,6 +245,78 @@ fn load_config() -> Config {
     // If we get here, use default configuration
     debug!("Using default configuration");
     Config::default()
+}
+
+// Validate that JavaScript plugin configuration matches Rust configuration
+fn validate_js_plugin_config(config: &Config) -> Result<(), Box<dyn Error>> {
+    // Path to the JavaScript API file
+    let api_js_path = PathBuf::from("../api.js");
+    
+    if !api_js_path.exists() {
+        warn!("JavaScript API file not found at ../api.js - skipping config validation");
+        return Ok(());
+    }
+    
+    let api_js_content = fs::read_to_string(&api_js_path)?;
+    
+    // Extract defaultPort and maxPortAttempts from JavaScript
+    let default_port_regex = Regex::new(r"const\s+defaultPort\s*=\s*(\d+)")?;
+    let max_attempts_regex = Regex::new(r"const\s+maxPortAttempts\s*=\s*(\d+)")?;
+    
+    let js_default_port = default_port_regex
+        .captures(&api_js_content)
+        .and_then(|caps| caps.get(1))
+        .and_then(|m| m.as_str().parse::<u16>().ok());
+        
+    let js_max_attempts = max_attempts_regex
+        .captures(&api_js_content)
+        .and_then(|caps| caps.get(1))
+        .and_then(|m| m.as_str().parse::<u16>().ok());
+    
+    // Compare with Rust configuration
+    let rust_default_port = config.backend.port;
+    let rust_max_attempts = config.backend.max_port_attempts;
+    
+    let mut config_errors = Vec::new();
+    
+    if let Some(js_port) = js_default_port {
+        if js_port != rust_default_port {
+            config_errors.push(format!(
+                "Port mismatch: JavaScript defaultPort={}, Rust port={}",
+                js_port, rust_default_port
+            ));
+        }
+    } else {
+        config_errors.push("Could not find defaultPort in JavaScript API file".to_string());
+    }
+    
+    if let Some(js_attempts) = js_max_attempts {
+        if js_attempts != rust_max_attempts {
+            config_errors.push(format!(
+                "Max attempts mismatch: JavaScript maxPortAttempts={}, Rust max_port_attempts={}",
+                js_attempts, rust_max_attempts
+            ));
+        }
+    } else {
+        config_errors.push("Could not find maxPortAttempts in JavaScript API file".to_string());
+    }
+    
+    if !config_errors.is_empty() {
+        error!("JavaScript plugin configuration validation failed:");
+        for err in &config_errors {
+            error!("  {}", err);
+        }
+        error!("Please ensure api.js uses the same port configuration as config.yaml");
+        error!("JavaScript: const defaultPort = {}; const maxPortAttempts = {};", 
+               rust_default_port, rust_max_attempts);
+        
+        // Don't fail the server startup, just warn loudly
+        warn!("Continuing startup despite configuration mismatch - plugin may not work correctly");
+    } else {
+        info!("JavaScript plugin configuration validated successfully");
+    }
+    
+    Ok(())
 }
 
 // Constants
@@ -513,6 +586,9 @@ fn handle_batch_blocks(state: Arc<AppState>, payload: &str) -> Result<String, St
     // Get a single lock on the graph for the entire batch
     let mut graph_manager = state.graph_manager.lock().unwrap();
     
+    // Disable auto-save during batch processing to avoid interleaved saves
+    graph_manager.disable_auto_save();
+    
     for block_data in blocks {
         // Validate and process each block
         if block_data.validate().is_ok() {
@@ -529,7 +605,8 @@ fn handle_batch_blocks(state: Arc<AppState>, payload: &str) -> Result<String, St
         }
     }
     
-    // GraphManager saves periodically, but force save after batch
+    // Re-enable auto-save and force save after batch
+    graph_manager.enable_auto_save();
     if success_count > 0 {
         if let Err(e) = graph_manager.save_graph() {
             error!("Error saving graph after batch processing: {e:?}");
@@ -564,6 +641,9 @@ fn handle_batch_pages(state: Arc<AppState>, payload: &str) -> Result<String, Str
     // Get a single lock on the graph for the entire batch
     let mut graph_manager = state.graph_manager.lock().unwrap();
     
+    // Disable auto-save during batch processing to avoid interleaved saves
+    graph_manager.disable_auto_save();
+    
     for page_data in pages {
         // Validate and process each page
         if page_data.validate().is_ok() {
@@ -580,7 +660,8 @@ fn handle_batch_pages(state: Arc<AppState>, payload: &str) -> Result<String, Str
         }
     }
     
-    // GraphManager saves periodically, but force save after batch
+    // Re-enable auto-save and force save after batch
+    graph_manager.enable_auto_save();
     if success_count > 0 {
         if let Err(e) = graph_manager.save_graph() {
             error!("Error saving graph after batch processing: {e:?}");
@@ -715,6 +796,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     // Load configuration
     let config = load_config();
+    
+    // Validate JavaScript plugin configuration matches our config
+    if let Err(e) = validate_js_plugin_config(&config) {
+        warn!("Failed to validate JavaScript plugin configuration: {}", e);
+    }
     
     // Check for previous instance and terminate it
     if fs::metadata(SERVER_INFO_FILE).is_ok() {
