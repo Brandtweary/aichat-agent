@@ -29,6 +29,20 @@
  * - Handling batch processing of blocks and pages
  * - Tracking and reporting validation issues
  * 
+ * API Communication (via window.KnowledgeGraphAPI):
+ * - sendToBackend(data) - Send data to the backend server
+ * - checkSyncStatus() - Check current sync status with backend
+ * - getBackendUrl(endpoint) - Get the backend URL for an endpoint
+ * - updateSyncTimestamp() - Update the last sync timestamp
+ * - log.error/warn/info/debug/trace(message, details, source) - Send logs to backend
+ * 
+ * Message types sent to backend:
+ * - type_: 'block' - Individual block data
+ * - type_: 'blocks' - Batch of block data
+ * - type_: 'page' - Individual page data
+ * - type_: 'pages' - Batch of page data
+ * - type_: 'plugin_initialized' - Plugin startup notification
+ * 
  * Public interfaces:
  * - The plugin registers the following slash command in Logseq:
  *   - "/Check Sync Status": Checks and displays the current sync status with the backend
@@ -60,10 +74,10 @@
 // These functions now use the global KnowledgeGraphAPI object
 //=============================================================================
 
-// Send diagnostic information to the backend server
+// This function is now deprecated - use KnowledgeGraphAPI.log instead
+// Keeping for backwards compatibility but redirecting to new logging system
 async function sendDiagnosticInfo(message, details = {}) {
-  // Use the global KnowledgeGraphAPI object's sendDiagnosticInfo function
-  return KnowledgeGraphAPI.sendDiagnosticInfo(message, details);
+  return KnowledgeGraphAPI.log.info(message, details, 'Diagnostic');
 }
 
 // Check if backend server is available
@@ -124,43 +138,46 @@ const validationIssues = KnowledgeGraphDataProcessor.validationIssues;
 async function processBatch(type, items, graphName, batchSize = 100) {
   if (!items || items.length === 0) return;
   
-  console.log(`Processing ${items.length} ${type}s`);
+  // Only log large batches at debug level
+  if (items.length > 100) {
+    KnowledgeGraphAPI.log.debug(`Processing ${items.length} ${type}s`);
+  }
   const batch = [];
   
   for (const item of items) {
     try {
       if (type === 'block') {
         if (!item.uuid) {
-          console.warn('Skipping block: missing UUID');
+          KnowledgeGraphAPI.log.error('Block missing UUID', {block: item});
           continue;
         }
         const blockData = await processBlockData(item);
         if (!blockData) {
-          console.warn(`Skipping block ${item.uuid}: processing returned null`);
+          // Skip silently - empty blocks are normal
           continue;
         }
         const validation = validateBlockData(blockData);
         if (validation.valid) {
           batch.push(blockData);
         } else {
-          console.error(`Invalid block data for UUID ${item.uuid}:`, validation.errors);
+          KnowledgeGraphAPI.log.warn(`Invalid block data for UUID ${item.uuid}`, validation.errors);
           validationIssues.addBlockIssue(blockData.id, blockData.page, validation.errors);
         }
       } else if (type === 'page') {
         if (!item.name) {
-          console.warn('Skipping page: missing name');
+          KnowledgeGraphAPI.log.error('Page missing name', {page: item});
           continue;
         }
         const pageData = await processPageData(item);
         if (!pageData) {
-          console.warn(`Skipping page "${item.name}": processing returned null`);
+          // Skip silently
           continue;
         }
         const validation = validatePageData(pageData);
         if (validation.valid) {
           batch.push(pageData);
         } else {
-          console.error(`Invalid page data for "${item.name}":`, validation.errors);
+          KnowledgeGraphAPI.log.warn(`Invalid page data for "${item.name}"`, validation.errors);
           validationIssues.addPageIssue(pageData.name, validation.errors);
         }
       }
@@ -171,13 +188,12 @@ async function processBatch(type, items, graphName, batchSize = 100) {
       }
     } catch (error) {
       const identifier = type === 'block' ? item.uuid : `"${item.name}"`;
-      console.error(`Error processing ${type} ${identifier}:`, error);
+      KnowledgeGraphAPI.log.error(`Error processing ${type} ${identifier}`, {error: error.message});
     }
   }
 
   // Send any remaining items
   if (batch.length > 0) {
-    console.log(`Sending remaining ${batch.length} ${type}s`);
     await sendBatchToBackend(type, batch, graphName);
   }
 }
@@ -189,20 +205,20 @@ async function handleDBChanges(changes) {
     return;
   }
   
-  console.log(`Received ${changes.length} database changes`);
+  // Silent happy path - no log for routine changes
   
   // Check if backend is available before processing changes (light retry for real-time)
   try {
     const backendAvailable = await checkBackendAvailabilityWithRetry(1, 500);
     if (!backendAvailable) {
-      console.error('Backend server not available. Real-time changes will not be processed.');
+      KnowledgeGraphAPI.log.warn('Backend server not available. Real-time changes will not be processed.');
       return;
     }
     
     // Get current graph name
     const graph = await logseq.App.getCurrentGraph();
     if (!graph || !graph.name) {
-      console.error('Failed to get current graph name.');
+      KnowledgeGraphAPI.log.error('Failed to get current graph name.');
       return;
     }
     
@@ -221,7 +237,7 @@ async function handleDBChanges(changes) {
       }
     }
   } catch (error) {
-    console.error('Error handling DB changes:', error);
+    KnowledgeGraphAPI.log.error('Error handling DB changes', {error: error.message, stack: error.stack});
   }
 }
 
@@ -231,12 +247,13 @@ async function handleDBChanges(changes) {
 
 // Sync all pages and blocks in the database
 async function syncFullDatabase() {
-  console.log('Starting full database sync...');
+  const syncStartTime = performance.now();
+  KnowledgeGraphAPI.log.info('Starting full database sync');
   
   // Check if backend is available with retry logic for critical full sync
   const backendAvailable = await checkBackendAvailabilityWithRetry(3, 2000);
   if (!backendAvailable) {
-    console.error('Backend server not available after retries. Sync aborted.');
+    KnowledgeGraphAPI.log.error('Backend server not available after retries. Sync aborted.');
     logseq.App.showMsg('Backend server not available after retries. Start the server first.', 'error');
     return false;
   }
@@ -248,23 +265,22 @@ async function syncFullDatabase() {
     // Get current graph
     const graph = await logseq.App.getCurrentGraph();
     if (!graph) {
-      console.error('Failed to get current graph.');
+      KnowledgeGraphAPI.log.error('Failed to get current graph.');
       logseq.App.showMsg('Failed to get current graph.', 'error');
       return false;
     }
     
     const graphName = graph.name;
-    logseq.App.showMsg('Starting full database sync...', 'info');
     
     // Get all pages
     const allPages = await logseq.Editor.getAllPages();
     if (!allPages || !Array.isArray(allPages)) {
-      console.error('Failed to fetch pages from database.');
+      KnowledgeGraphAPI.log.error('Failed to fetch pages from database.');
       logseq.App.showMsg('Failed to fetch pages from database.', 'error');
       return false;
     }
     
-    console.log(`Found ${allPages.length} pages to sync.`);
+    KnowledgeGraphAPI.log.debug(`Found ${allPages.length} pages to sync`);
     
     // Track progress
     let pagesProcessed = 0;
@@ -280,9 +296,7 @@ async function syncFullDatabase() {
       await processBatch('page', pageBatch, graphName);
       pagesProcessed += pageBatch.length;
       
-      if (pagesProcessed % 10 === 0) {
-        logseq.App.showMsg(`Syncing pages: ${pagesProcessed}/${allPages.length}`, 'info');
-      }
+      // Silent progress - no UI spam
       
       // Process blocks for these pages
       for (const page of pageBatch) {
@@ -292,16 +306,13 @@ async function syncFullDatabase() {
           const pageBlockCount = countBlocksInTree(pageBlocksTree);
           blocksProcessed += pageBlockCount;
           
-          if (blocksProcessed % 100 === 0) {
-            logseq.App.showMsg(`Processed ${blocksProcessed} blocks so far...`, 'info');
-          }
+          // Silent progress - no UI spam
         }
       }
     }
     
     // Send any remaining blocks in the final batch
     if (globalBlockBatch.length > 0) {
-      console.log(`Sending final batch of ${globalBlockBatch.length} blocks`);
       await sendBatchToBackend('block', globalBlockBatch.slice(), graphName);
       globalBlockBatch.splice(0); // Clear for consistency
     }
@@ -309,14 +320,11 @@ async function syncFullDatabase() {
     // Display validation summary if there were issues
     const summary = validationIssues.getSummary();
     if (summary.totalBlockIssues > 0 || summary.totalPageIssues > 0) {
-      console.error('Validation issues summary:', summary);
-      
-      // Send detailed validation summary to backend for troubleshooting
-      await sendDiagnosticInfo('Validation issues summary', summary);
+      KnowledgeGraphAPI.log.warn('Validation issues during sync', summary);
       
       // Show a user-friendly message with counts
       logseq.App.showMsg(
-        `Sync completed with issues: ${summary.totalBlockIssues} block issues, ${summary.totalPageIssues} page issues. Check console for details.`, 
+        `Sync completed with issues: ${summary.totalBlockIssues} block issues, ${summary.totalPageIssues} page issues.`, 
         'warning'
       );
     } else {
@@ -324,22 +332,20 @@ async function syncFullDatabase() {
       logseq.App.showMsg('Full database sync completed successfully!', 'success');
     }
     
-    // Update sync timestamp (moved to success handler to avoid duplicate calls)
-    
-    // --- Summary Log ---
-    // Print a summary indicating how many pages and blocks were updated and errors
-    console.log('--- Logseq Knowledge Graph Sync Summary ---');
-    console.log(`Pages synced: ${pagesProcessed}`);
-    console.log(`Blocks synced: ${blocksProcessed}`);
-    console.log(`Page errors: ${summary.totalPageIssues || 0}`);
-    console.log(`Block errors: ${summary.totalBlockIssues || 0}`);
-    console.log('------------------------------------------');
-    // --- End Summary Log ---
+    // Log summary at info level - this is one of our few info logs
+    const syncDuration = (performance.now() - syncStartTime) / 1000;
+    KnowledgeGraphAPI.log.info('Full sync completed', {
+      pages: pagesProcessed,
+      blocks: blocksProcessed,
+      pageErrors: summary.totalPageIssues || 0,
+      blockErrors: summary.totalBlockIssues || 0,
+      durationSeconds: syncDuration.toFixed(3)
+    });
     
     return true;
   } catch (error) {
-    console.error('Error during full database sync:', error);
-    logseq.App.showMsg('Error during full database sync. Check console for details.', 'error');
+    KnowledgeGraphAPI.log.error('Error during full database sync', {error: error.message, stack: error.stack});
+    logseq.App.showMsg('Error during full database sync.', 'error');
     return false;
   }
 }
@@ -352,14 +358,14 @@ async function processBlocksRecursively(blocks, graphName, blockBatch, batchSize
     try {
       // Skip blocks without UUIDs
       if (!block.uuid) {
-        console.warn('Skipping block without UUID');
+        KnowledgeGraphAPI.log.error('Block missing UUID in recursive processing', {block});
         continue;
       }
       
       // Process this block
       const blockData = await processBlockData(block);
       if (!blockData) {
-        console.warn(`Skipping block ${block.uuid} - processing returned null`);
+        // Skip silently - empty blocks are normal
         continue;
       }
       
@@ -374,7 +380,7 @@ async function processBlocksRecursively(blocks, graphName, blockBatch, batchSize
           blockBatch.splice(0); // Clear array safely
         }
       } else {
-        console.error(`Invalid block data for ${block.uuid}:`, validation.errors);
+        KnowledgeGraphAPI.log.warn(`Invalid block data for ${block.uuid}`, validation.errors);
         validationIssues.addBlockIssue(blockData.id, blockData.page, validation.errors);
       }
       
@@ -383,7 +389,7 @@ async function processBlocksRecursively(blocks, graphName, blockBatch, batchSize
         await processBlocksRecursively(block.children, graphName, blockBatch, batchSize);
       }
     } catch (blockError) {
-      console.error(`Error processing block ${block.uuid}:`, blockError);
+      KnowledgeGraphAPI.log.error(`Error processing block ${block.uuid}`, {error: blockError.message});
       // Continue with other blocks even if one fails
     }
   }
@@ -432,22 +438,21 @@ async function updateSyncTimestamp() {
 
 // Main function for plugin logic
 async function main() {
-  console.log('Knowledge Graph Plugin initializing...');
+  // Silent startup - no need to log initialization
   
   // Check if required global objects are available
   if (typeof window.KnowledgeGraphAPI === 'undefined') {
+    // Can't use our logging API if it doesn't exist!
     console.error('ERROR: KnowledgeGraphAPI not found! api.js may not have loaded properly.');
     logseq.App.showMsg('Plugin initialization failed: API module not loaded', 'error');
     return;
   }
   
   if (typeof window.KnowledgeGraphDataProcessor === 'undefined') {
-    console.error('ERROR: KnowledgeGraphDataProcessor not found! data_processor.js may not have loaded properly.');
+    KnowledgeGraphAPI.log.error('KnowledgeGraphDataProcessor not found! data_processor.js may not have loaded properly.');
     logseq.App.showMsg('Plugin initialization failed: Data processor module not loaded', 'error');
     return;
   }
-  
-  console.log('All required modules loaded successfully.');
 
   // Register a command to check sync status
   logseq.Editor.registerSlashCommand('Check Sync Status', async () => {
@@ -493,8 +498,8 @@ async function main() {
       
       logseq.App.showMsg(statusMessage, 'info');
     } catch (error) {
-      console.error('Error checking sync status:', error);
-      logseq.App.showMsg('Error checking sync status. Check console for details.', 'error');
+      KnowledgeGraphAPI.log.error('Error checking sync status', {error: error.message});
+      logseq.App.showMsg('Error checking sync status.', 'error');
     }
   });
 
@@ -505,39 +510,62 @@ async function main() {
   logseq.App.onRouteChanged(async ({ path }) => {
     if (path.startsWith('/page/')) {
       const pageName = decodeURIComponent(path.substring(6));
-      console.log(`Page opened: ${pageName}`);
+      // Silent - we don't need to log every page navigation
       
       // You could trigger a sync here if needed
     }
   });
   
-  // Check if we need to do a full sync
-  console.log('Setting timeout to check for full sync in 5 seconds...');
-  setTimeout(async () => {
-    console.log('Timeout fired, checking if full sync is needed...');
+  // Send initialization signal to backend first
+  try {
+    const result = await KnowledgeGraphAPI.sendToBackend({
+      source: 'PKM Plugin Startup',
+      timestamp: Date.now().toString(),
+      type_: 'plugin_initialized',
+      payload: JSON.stringify({ message: 'PKM Knowledge Graph Plugin initialized successfully' })
+    });
     
-    const needsFullSync = await checkIfFullSyncNeeded();
-    
-    if (needsFullSync) {
-      logseq.App.showMsg('Performing initial database sync. This may take a while...', 'info');
-      console.log('Performing initial database sync...');
-      
-      const success = await syncFullDatabase();
-      
-      if (success) {
-        await updateSyncTimestamp();
-        logseq.App.showMsg('Initial database sync completed successfully!', 'success');
-      } else {
-        logseq.App.showMsg('Initial database sync failed. Check console for details.', 'error');
-      }
-    } else {
-      console.log('Full sync not needed');
-      logseq.App.showMsg('Database is up to date. No full sync needed.', 'info');
+    // Show single UI notification for successful plugin load
+    if (result) {
+      logseq.App.showMsg('Cyberorganism initialized', 'success');
     }
-  }, 5000); // Wait 5 seconds after initialization to check for sync
-
-  console.log('Knowledge Graph Plugin initialized. Try the /Check Sync Status command.');
+  } catch (error) {
+    KnowledgeGraphAPI.log.error('Failed to send plugin initialization signal', {error: error.message});
+  }
+  
+  // Check if we need to do a full sync immediately
+  const needsFullSync = await checkIfFullSyncNeeded();
+  
+  if (needsFullSync) {
+    const success = await syncFullDatabase();
+    
+    if (success) {
+      await updateSyncTimestamp();
+      // Success message already shown by syncFullDatabase
+    } else {
+      // Error message already shown by syncFullDatabase
+    }
+    
+    // Signal sync completion regardless of success/failure
+    await KnowledgeGraphAPI.sendToBackend({
+      source: 'PKM Plugin Sync',
+      timestamp: Date.now().toString(),
+      type_: 'sync_complete',
+      payload: JSON.stringify({ success })
+    });
+  } else {
+    // No sync needed - signal completion immediately
+    await KnowledgeGraphAPI.sendToBackend({
+      source: 'PKM Plugin Sync',
+      timestamp: Date.now().toString(),
+      type_: 'sync_complete', 
+      payload: JSON.stringify({ syncSkipped: true })
+    });
+  }
 }
 
 // Initialize the plugin
-logseq.ready(main).catch(console.error);
+logseq.ready(main).catch((error) => {
+  // Can't use our logging API here if initialization fails
+  console.error('Plugin initialization failed:', error);
+});

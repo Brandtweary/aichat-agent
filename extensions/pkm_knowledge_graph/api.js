@@ -26,7 +26,7 @@
  * Public interfaces:
  * - getBackendUrl(endpoint): Constructs a complete backend URL for a given endpoint
  * - sendToBackend(data): Sends data to the backend's /data endpoint
- * - sendDiagnosticInfo(message, details): Sends diagnostic information to the backend
+ * - log: Logging system with error(), warn(), info(), debug(), trace() methods
  * - checkBackendAvailability(): Verifies if the backend server is running
  * - checkIfFullSyncNeeded(): Determines if a full database sync is required
  * - updateSyncTimestamp(): Updates the last sync timestamp on the backend
@@ -144,44 +144,111 @@ window.KnowledgeGraphAPI.sendToBackend = async function(data) {
 
     if (response.ok) {
       console.log('Data sent successfully to backend.');
-      logseq.App.showMsg('Sent data to backend successfully!', 'success');
       return true;
     } else {
       console.error(`Backend server responded with status: ${response.status}`);
-      logseq.App.showMsg(`Error sending data: Backend responded with ${response.status}`, 'error');
       return false;
     }
   } catch (error) {
     console.error('Failed to send data to backend:', error);
-    logseq.App.showMsg('Failed to connect to backend server. Is it running?', 'error');
     return false;
   }
 }
 
 /**
- * Send diagnostic information to the backend server
- * @param {string} message - Diagnostic message
- * @param {Object} details - Additional details
+ * Logging system matching Rust tracing levels
+ * @namespace
  */
-window.KnowledgeGraphAPI.sendDiagnosticInfo = async function(message, details = {}) {
-  console.log(`DIAGNOSTIC: ${message}`, details);
+window.KnowledgeGraphAPI.log = {
+  /**
+   * Send a log message to the backend server
+   * @param {string} level - Log level (error, warn, info, debug, trace)
+   * @param {string} message - Log message
+   * @param {Object} details - Optional additional details
+   * @param {string} source - Optional source identifier
+   * @returns {Promise<boolean>} - Whether the log was sent successfully
+   */
+  async send(level, message, details = null, source = null) {
+    const logUrl = await window.KnowledgeGraphAPI.getBackendUrl('/log');
+    
+    try {
+      const response = await fetch(logUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          level,
+          message,
+          details,
+          source
+        }),
+      });
+      
+      return response.ok;
+    } catch (error) {
+      // Fallback to console if backend is unavailable
+      console.error('Failed to send log to backend:', error);
+      console.log(`[${level}] ${message}`, details);
+      return false;
+    }
+  },
   
-  try {
-    const graph = await logseq.App.getCurrentGraph();
-    await window.KnowledgeGraphAPI.sendToBackend({
-      source: 'Diagnostic',
-      timestamp: new Date().toISOString(),
-      graphName: graph ? graph.name : 'unknown',
-      type_: 'diagnostic',
-      payload: JSON.stringify({
-        message,
-        details
-      })
-    });
-  } catch (error) {
-    console.error('Error sending diagnostic info:', error);
+  /**
+   * Log an error message
+   * @param {string} message - Error message
+   * @param {Object} details - Optional error details
+   * @param {string} source - Optional source identifier
+   */
+  async error(message, details = null, source = null) {
+    console.error(message, details); // Also log to console
+    return this.send('error', message, details, source);
+  },
+  
+  /**
+   * Log a warning message
+   * @param {string} message - Warning message
+   * @param {Object} details - Optional warning details
+   * @param {string} source - Optional source identifier
+   */
+  async warn(message, details = null, source = null) {
+    console.warn(message, details); // Also log to console
+    return this.send('warn', message, details, source);
+  },
+  
+  /**
+   * Log an info message
+   * @param {string} message - Info message
+   * @param {Object} details - Optional info details
+   * @param {string} source - Optional source identifier
+   */
+  async info(message, details = null, source = null) {
+    console.log(message, details); // Also log to console
+    return this.send('info', message, details, source);
+  },
+  
+  /**
+   * Log a debug message
+   * @param {string} message - Debug message
+   * @param {Object} details - Optional debug details
+   * @param {string} source - Optional source identifier
+   */
+  async debug(message, details = null, source = null) {
+    console.log(`[DEBUG] ${message}`, details); // Also log to console
+    return this.send('debug', message, details, source);
+  },
+  
+  /**
+   * Log a trace message
+   * @param {string} message - Trace message
+   * @param {Object} details - Optional trace details
+   * @param {string} source - Optional source identifier
+   */
+  async trace(message, details = null, source = null) {
+    console.log(`[TRACE] ${message}`, details); // Also log to console
+    return this.send('trace', message, details, source);
   }
-}
+};
 
 /**
  * Check if backend server is available (single attempt)
@@ -264,7 +331,7 @@ window.KnowledgeGraphAPI.checkIfFullSyncNeeded = async function() {
     return status.full_sync_needed === true;
   } catch (error) {
     console.error('Error checking if full sync is needed:', error);
-    await window.KnowledgeGraphAPI.sendDiagnosticInfo('Error checking if full sync needed', { 
+    await window.KnowledgeGraphAPI.log.error('Error checking if full sync needed', { 
       error: error.message,
       stack: error.stack
     });
@@ -296,7 +363,7 @@ window.KnowledgeGraphAPI.updateSyncTimestamp = async function() {
     return result.success === true;
   } catch (error) {
     console.error('Error updating sync timestamp:', error);
-    await window.KnowledgeGraphAPI.sendDiagnosticInfo('Error updating sync timestamp', { 
+    await window.KnowledgeGraphAPI.log.error('Error updating sync timestamp', { 
       error: error.message,
       stack: error.stack
     });

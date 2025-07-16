@@ -4,6 +4,14 @@ A guide to core modules, system design, and data flow for developers.
 
 ## Recent Updates
 
+### Development Workflow Enhancements Complete
+**Status**: Major improvements to development experience and production safety
+- **Logseq Auto-Launch**: Cross-platform executable detection (Linux/macOS/Windows) with automatic launch/shutdown coordination
+- **Centralized Logging**: Replaced all console.log calls with structured KnowledgeGraphAPI.log system mapping to Rust tracing levels
+- **Graceful Shutdown**: Server waits for sync completion before exit, protects in-flight HTTP requests via Axum graceful shutdown
+- **Development Duration**: Configurable auto-exit timer (default 3s) with production build warnings for safety
+- **Enhanced Plugin Coordination**: Added sync_complete message type and plugin initialization channels for proper lifecycle management
+
 ### Petgraph Integration Complete
 **Status**: Replaced JSON datastore with direct petgraph implementation
 - **GraphManager Module**: New core component managing knowledge graph using petgraph's StableGraph
@@ -53,14 +61,64 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
 
 **JavaScript Frontend (Logseq Plugin)**
 - **index.js**: Orchestrates plugin lifecycle, handles Logseq events, manages sync logic
-- **api.js**: Provides HTTP communication with backend server
+  - Sends message types to backend: 'block', 'blocks', 'page', 'pages', 'plugin_initialized'
+  - Monitors DB changes via `logseq.DB.onChanged` and batches updates
+  - Handles full database sync every 2 hours
+- **api.js**: HTTP communication layer (exposed as `window.KnowledgeGraphAPI`)
+  - `sendToBackend(data)`: Sends data to POST /data endpoint, returns boolean
+  - `sendBatchToBackend(type, batch, graphName)`: Wrapper for batch operations, formats as `${type}_batch`
+  - `log.error/warn/info/debug/trace(message, details, source)`: Sends logs to POST /log endpoint
+  - `checkBackendAvailabilityWithRetry(maxRetries, delayMs)`: Health check with retries (used before sync)
+  - Port discovery (tries 3000-3010), sync status queries
+  - Full API documentation in the module header comments of api.js
 - **data_processor.js**: Validates and transforms Logseq data before transmission
+  - Processes blocks and pages into standardized format
+  - Extracts references (page refs, block refs, tags)
 
 **Rust Backend Server**
 - **main.rs**: HTTP server with RESTful endpoints:
-  - `POST /data`: Receives blocks/pages from Logseq (supports both individual items and batches)
-  - `GET /sync/status`: Returns sync state and graph statistics (node count, edge count)
-  - `PATCH /sync`: Updates sync timestamp after full sync
+  
+  **Endpoints:**
+  - `GET /` - Health check endpoint
+    - Returns: `"PKM Knowledge Graph Backend Server"`
+    - Used by JavaScript plugin to verify server availability
+  
+  - `POST /data` - Main data ingestion endpoint
+    - Accepts: `PKMData` JSON object with fields:
+      - `source`: String identifying data origin
+      - `timestamp`: String timestamp
+      - `type_`: Optional string determining processing logic
+      - `payload`: String containing the actual data (usually stringified JSON)
+    - Type values and their payloads:
+      - `"block"` - Single PKMBlockData object
+      - `"blocks"` or `"block_batch"` - Array of PKMBlockData objects
+      - `"page"` - Single PKMPageData object  
+      - `"pages"` or `"page_batch"` - Array of PKMPageData objects
+      - `"plugin_initialized"` - Plugin startup notification
+      - `null/other` - Generic acknowledgment (used for real-time sync)
+    - Returns: `ApiResponse` with `success: bool` and `message: string`
+  
+  - `GET /sync/status` - Sync status and graph statistics
+    - Returns: JSON object with:
+      - `last_full_sync`: ISO timestamp string or null
+      - `hours_since_sync`: Float hours since last sync
+      - `full_sync_needed`: Boolean (true if >2 hours or never synced)
+      - `node_count`: Total nodes in graph
+      - `reference_count`: Total edges in graph
+  
+  - `PATCH /sync` - Update sync timestamp
+    - Called after successful full database sync
+    - Updates internal timestamp used for sync scheduling
+    - Returns: `ApiResponse` with success status
+  
+  - `POST /log` - Logging endpoint for JavaScript plugin
+    - Accepts: `LogMessage` JSON object with:
+      - `level`: String ("error", "warn", "info", "debug", "trace")
+      - `message`: String log message
+      - `source`: Optional string identifying log source
+      - `details`: Optional JSON value with additional context
+    - Maps JavaScript log levels to Rust tracing macros
+    - Returns: `ApiResponse` confirming receipt
 - **graph_manager.rs**: Core graph storage using petgraph:
   - StableGraph structure maintains consistent node indices across modifications
   - Node types: Page and Block with full metadata (content, properties, timestamps)
@@ -85,6 +143,12 @@ The backend server automatically manages its lifecycle:
 - If the configured port is busy, automatically tries alternative ports (3001, 3002, etc.)
 - The JavaScript plugin reads the server info file to discover the actual port in use
 - No manual process management needed - just run `cargo run` to start fresh
+- **Logseq Auto-Launch**: If `auto_launch: true` in config.yaml, the server will:
+  - Search for Logseq executable in common locations (Linux/macOS/Windows support)
+  - Launch Logseq after server starts and wait for plugin initialization
+  - Filter Electron/xdg-mime logs to trace level to keep console clean
+  - Terminate Logseq gracefully on server shutdown
+  - Custom executable path can be specified via `executable_path` config option
 
 ## Data Flow
 
@@ -124,27 +188,23 @@ Check Timestamps → Query All Pages/Blocks → Process in Batches → Update Ba
 - Server always binds to localhost for security
 - See config.yaml file for current options
 
-
-## Planned Architecture Changes
-
-### Graph Algorithms and Analysis
-- Implement Personalized PageRank (PPR) for similarity ranking
-- Add graph visualization endpoint for debugging
-- CLI flag for graph structure analysis (load, analyze, exit)
-
-### Enhanced Persistence
-- Write-Ahead Log (WAL) for crash recovery
-- Tiered backup retention (hourly/daily/weekly/monthly snapshots)
-- Graph compression for disk storage
-
-### Process Automation
-- Automate Logseq launch when backend starts
-- Ensure plugin is loaded and enabled automatically
-- Handle graceful Logseq shutdown when server stops
-
 ## Testing
 
 - **JavaScript**: `npm test` - Jest test suite with 23 tests covering data validation and reference extraction (silent by default)
 - **Rust**: `cargo test` - Backend component tests (quiet by default via .cargo/config.toml)
-- **Integration**: RESTful endpoint tests and logseq_dummy_graph for development
-- **Development**: `cargo run -- --duration 3` - Run backend server for testing (auto-exits after specified seconds)
+- **Development**: `RUST_LOG=debug cargo run` - Run backend server with default 3-second duration for testing
+
+## Development Features
+
+**Graceful Shutdown System:**
+- Server waits for sync operations to complete before shutting down
+- Protects against data corruption from interrupted batch operations
+- Uses Axum's graceful shutdown to handle in-flight HTTP requests
+- 10-second timeout prevents indefinite hangs
+
+**Development Duration Configuration:**
+- `development.default_duration: 3` in config.yaml sets automatic exit timer
+- Prevents servers from running indefinitely during development workflows
+- CLI `--duration X` overrides config default when needed
+- Production builds warn if `default_duration` is not null (should be null for production)
+- Graceful shutdown ensures sync operations complete before timer expires

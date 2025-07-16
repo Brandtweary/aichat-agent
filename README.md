@@ -1,6 +1,8 @@
 # Cyberorganism
 
 > Cyberorganism is a fork of [AIChat](https://github.com/sigoden/aichat) that adds knowledge graph capabilities for personal knowledge management systems.
+> 
+> **For comprehensive Cyberorganism setup and usage documentation, see [extensions/README.md](./extensions/README.md)**
 
 Cyberorganism transforms your personal knowledge management system into an intelligent, queryable knowledge graph. By connecting to tools like Logseq, it creates a living network of your ideas that AI agents can navigate and reason through.
 

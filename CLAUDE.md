@@ -10,8 +10,8 @@ cargo test                       # Run all tests
 # In extensions/pkm_knowledge_graph/backend/
 cargo build                      # Build backend server
 cargo test                       # Run tests (quiet by default)
-RUST_LOG=info cargo run          # Run backend server
-RUST_LOG=info cargo run -- --duration 3  # Run for 3 seconds (testing/validation), --duration 30 for user operations
+RUST_LOG=info cargo run          # Run backend server (uses default 3s duration from config)
+RUST_LOG=info cargo run -- --duration 10  # Override duration when needed
 ```
 
 ## Architecture
@@ -33,6 +33,7 @@ RUST_LOG=info cargo run -- --duration 3  # Run for 3 seconds (testing/validation
 ## Codebase Guidelines
 - Use tracing with appropriate levels (error, warn, etc.) for Rust logging
 - API endpoints should be RESTful
+- JS Plugin: console.log stays in browser only - use `KnowledgeGraphAPI.log.info/error/warn/debug/trace()` to send logs to the Rust server.
 
 ## Development Best Practices
 

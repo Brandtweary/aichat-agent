@@ -104,6 +104,43 @@ The extension uses its own configuration file separate from the main AIChat conf
 1. Copy `extensions/pkm_knowledge_graph/config.example.yaml` to `extensions/pkm_knowledge_graph/config.yaml`
 2. Edit the settings as needed (see config.yaml for available options)
 
+**Key Configuration Options:**
+
+**Backend Server:**
+- `backend.port: 3000` - Server port (automatically tries alternatives if busy)
+- `backend.max_port_attempts: 10` - Number of alternative ports to try
+
+**Logseq Auto-Launch:**
+- `logseq.auto_launch: true` - Automatically start Logseq when server starts
+- `logseq.executable_path: /path/to/logseq` - Optional custom path to Logseq executable
+
+**Development Settings:**
+- `development.default_duration: 3` - Auto-exit timer for development (set to null for production)
+
+**Logseq Auto-Launch Details:**
+
+When `auto_launch: true` is enabled, the server will automatically:
+1. **Find Logseq executable** by searching common installation locations:
+   - **Linux**: Checks PATH (`which logseq`), then searches for AppImage files in `~/.local/share/applications/appimages/`, `~/Applications/`, `~/Downloads/`, etc.
+   - **macOS**: Looks for `/Applications/Logseq.app/Contents/MacOS/Logseq`
+   - **Windows**: Searches `%USERPROFILE%\AppData\Local\Logseq\Logseq.exe`
+2. **Launch Logseq** after the server starts successfully
+3. **Monitor plugin initialization** and wait for the plugin to connect
+4. **Terminate Logseq gracefully** when the server shuts down
+
+If auto-launch can't find your Logseq installation, specify the exact path:
+```yaml
+logseq:
+  auto_launch: true
+  executable_path: /custom/path/to/logseq
+```
+
+To disable auto-launch (useful if you prefer manual control):
+```yaml
+logseq:
+  auto_launch: false
+```
+
 The server always binds to localhost for security. If the default port is unavailable, the server will automatically try the next available port.
 
 Note: The `config.yaml` file is ignored by git to allow for local customization without affecting the repository.
@@ -117,8 +154,11 @@ cd extensions/pkm_knowledge_graph/backend
 # Build and run the backend server
 RUST_LOG=info cargo run
 
-# Run server for testing (exits after specified seconds)
-RUST_LOG=info cargo run -- --duration 3
+# Run server for development (uses default 3-second duration from config)
+RUST_LOG=info cargo run
+
+# Override duration for specific testing needs
+RUST_LOG=info cargo run -- --duration 10
 
 # Build only
 cargo build
@@ -126,6 +166,12 @@ cargo build
 # Run tests
 cargo test
 ```
+
+**Development Duration:**
+- By default, development runs automatically exit after 3 seconds (configurable in `config.yaml`)
+- This prevents servers from running indefinitely during development
+- Use `--duration X` to override the default when needed
+- Production builds warn if `default_duration` is not null
 
 **Frontend Plugin (JavaScript)**
 ```bash
