@@ -3,48 +3,123 @@
  * @description Core knowledge graph storage engine using petgraph
  * 
  * This module is the heart of Cyberorganism's knowledge graph implementation, providing
- * direct graph storage using petgraph's StableGraph structure. All PKM data (pages and 
- * blocks from Logseq) are stored as nodes in a directed graph with typed edges 
+ * persistent graph storage using petgraph's StableGraph structure. All PKM data (pages
+ * and blocks from Logseq) are stored as nodes in a directed graph with typed edges
  * representing various relationships.
  * 
- * Key design decisions:
- * - StableGraph over Graph: Maintains consistent NodeIndex values even after node removals
- * - HashMap for PKM ID lookups: O(1) access to nodes by their original identifiers
- * - Node metadata storage: Properties stored on nodes, not edges, for performance
- * - Auto-save mechanism: Time-based (5 min) or operation-based (10 ops) with batch disable
- * - Full graph serialization: Entire graph structure persisted to knowledge_graph.json
+ * ## Architecture Overview
  * 
- * Graph structure:
- * - Nodes: Page and Block types with full metadata (content, properties, timestamps)
- * - Edges: PageRef, BlockRef, Tag, Property, ParentChild, PageToBlock relationships
- * - Automatic node creation: Tags and property keys create implicit page nodes
+ * The GraphManager maintains three critical data structures:
+ * 1. `graph: StableGraph<NodeData, EdgeData>` - The actual graph structure
+ * 2. `pkm_to_node: HashMap<String, NodeIndex>` - O(1) PKM ID → graph node lookup
+ * 3. `last_full_sync: Option<i64>` - Unix timestamp for sync scheduling
  * 
- * Performance characteristics:
- * - Node creation/update: O(1) with HashMap lookup
- * - Edge creation: O(1) for direct relationships
- * - Graph save: O(V + E) where V = vertices, E = edges
- * - Graph load: O(V + E) deserialization
+ * ## Key Design Decisions
  * 
- * Batch processing:
- * - disable_auto_save(): Prevents interleaved saves during bulk operations
- * - enable_auto_save(): Re-enables after batch completion
- * - Manual save_graph() call after batch ensures data persistence
+ * ### StableGraph vs Graph
+ * Petgraph's StableGraph maintains consistent NodeIndex values even after node removals.
+ * This is critical for our HashMap-based ID mapping system, preventing index invalidation.
  * 
- * Error handling:
- * - GraphError enum for typed errors (IO, Serialization, ReferenceResolution)
- * - All public methods return GraphResult<T> for consistent error propagation
- * - Reference resolution failures logged but don't abort processing
+ * ### Dual ID System
+ * - **PKM ID**: Original Logseq identifier (block UUID or page name)
+ * - **Internal ID**: UUID generated for graph serialization compatibility
+ * This allows the graph to be self-contained while maintaining Logseq references.
  * 
- * Future enhancements:
- * - Graph algorithms: PageRank, similarity scoring, path finding
- * - Incremental updates: Track and save only modified nodes/edges
- * - Compression: Reduce disk footprint for large graphs
- * - WAL: Write-ahead logging for crash recovery
+ * ### Reference Resolution Strategy
+ * When processing references to non-existent nodes, the system creates placeholder nodes:
+ * - Missing pages: Created with name as content, empty properties
+ * - Missing blocks: Created with empty content, PKM ID preserved
+ * This ensures graph completeness and prevents broken references during incremental sync.
  * 
- * @requires petgraph - Graph data structure library
- * @requires serde - Serialization framework
- * @requires chrono - Date/time handling
- * @requires tracing - Structured logging
+ * ### Auto-Save Mechanism
+ * Dual-trigger persistence strategy optimizes for both data safety and performance:
+ * - **Time-based**: Every 5 minutes (catches low-activity periods)
+ * - **Operation-based**: Every 10 operations (catches high-activity bursts)
+ * - **Batch control**: `disable_auto_save()` / `enable_auto_save()` for bulk operations
+ * 
+ * ## Node and Edge Types
+ * 
+ * ### NodeData Structure
+ * - `id`: Internal UUID for serialization
+ * - `pkm_id`: Original Logseq identifier
+ * - `node_type`: Page or Block enum
+ * - `content`: Page name or block text
+ * - `properties`: HashMap of Logseq properties
+ * - `created_at` / `updated_at`: Timestamps parsed from multiple formats
+ * 
+ * ### Edge Types and Semantics
+ * - **PageRef**: `[[Page Name]]` - Block/page references another page
+ * - **BlockRef**: `((block-id))` - Block references another block
+ * - **Tag**: `#tag` - Creates implicit page node for tag
+ * - **Property**: `key:: value` - Currently stored in node, not as edges
+ * - **ParentChild**: Block hierarchy within pages
+ * - **PageToBlock**: Page owns root-level blocks (no parent)
+ * 
+ * ## Key Functions
+ * 
+ * ### Graph Construction
+ * - `new()`: Initialize manager with data directory, auto-loads existing graph
+ * - `create_or_update_node_from_pkm_block()`: Primary block ingestion (handles references)
+ * - `create_or_update_node_from_pkm_page()`: Page node creation/update
+ * - `ensure_page_exists()`: Lazy page creation for references
+ * 
+ * ### Persistence
+ * - `save_graph()`: Full graph serialization to JSON
+ * - `load_graph()`: Deserialize from disk on startup
+ * - `save_if_needed()`: Auto-save trigger logic
+ * 
+ * ### Sync Management
+ * - `get_sync_status()`: Returns sync metadata and graph statistics
+ * - `is_full_sync_needed()`: 2-hour threshold check
+ * - `update_full_sync_timestamp()`: Mark successful sync completion
+ * 
+ * ### Internal Helpers
+ * - `has_edge()`: Duplicate edge prevention
+ * - `resolve_and_add_reference()`: Reference type dispatch
+ * - `should_save()`: Auto-save threshold checks
+ * 
+ * ## Performance Characteristics
+ * 
+ * - **Node lookup**: O(1) via HashMap
+ * - **Edge creation**: O(1) for direct insertion
+ * - **Reference resolution**: O(1) for existing nodes, O(1) for placeholder creation
+ * - **Full save**: O(V + E) where V = vertices, E = edges
+ * - **Batch processing**: O(n) for n operations with single lock acquisition
+ * 
+ * ## Concurrency and Safety
+ * 
+ * The GraphManager is designed for single-threaded access within a Mutex:
+ * - API handlers acquire the lock for each operation
+ * - Batch operations hold the lock for the entire batch
+ * - Auto-save can be disabled to prevent lock contention during bulk updates
+ * 
+ * ## Error Recovery
+ * 
+ * - **Missing references**: Create placeholders (never fail)
+ * - **Save failures**: Log error, continue operation (data in memory)
+ * - **Load failures**: Start with empty graph (non-fatal)
+ * - **Malformed timestamps**: Fall back to current time
+ * 
+ * ## Current Limitations and Future Work
+ * 
+ * Currently this module is storage-only. Future enhancements will include:
+ * - **Query API**: Neighbor traversal, path finding, subgraph extraction
+ * - **Graph algorithms**: PageRank, similarity scoring, community detection
+ * - **Incremental saves**: Track dirty nodes, save only changes
+ * - **Write-ahead logging**: Crash recovery guarantees
+ * - **Graph indexing**: Full-text search, property indexes
+ * - **Compression**: Reduce JSON size for large graphs
+ * 
+ * ## Testing Strategy
+ * 
+ * The test suite validates:
+ * - Node and edge creation/updates
+ * - Reference resolution and placeholder creation
+ * - Parent-child and page-block relationships
+ * - Duplicate edge prevention
+ * - Save/load persistence cycle
+ * - Auto-save thresholds
+ * - Complex graph traversal scenarios
  */
 
 use std::collections::HashMap;
@@ -58,6 +133,7 @@ use thiserror::Error;
 use tracing::{info, warn, error, debug};
 
 use crate::pkm_data::{PKMBlockData, PKMPageData, PKMReference};
+use crate::utils::{parse_datetime, parse_properties};
 
 /// Type alias for our knowledge graph
 type KnowledgeGraph = StableGraph<NodeData, EdgeData>;
@@ -617,55 +693,6 @@ impl GraphManager {
 
 // Helper functions (from datastore)
 
-/// Parse a datetime string from PKM
-fn parse_datetime(datetime_str: &str) -> DateTime<Utc> {
-    // Try parsing with different formats
-    if let Ok(dt) = DateTime::parse_from_rfc3339(datetime_str) {
-        return dt.with_timezone(&Utc);
-    }
-    
-    // Try ISO 8601 format
-    if let Ok(dt) = DateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S%.fZ") {
-        return dt.with_timezone(&Utc);
-    }
-    
-    // Try Unix timestamp (milliseconds)
-    if let Ok(timestamp_millis) = datetime_str.parse::<i64>() {
-        // Handle both millisecond and second timestamps
-        let timestamp_millis = if timestamp_millis > 1_000_000_000_000 {
-            // Already in milliseconds
-            timestamp_millis
-        } else {
-            // Convert seconds to milliseconds
-            timestamp_millis * 1000
-        };
-        
-        if let Some(dt) = DateTime::from_timestamp_millis(timestamp_millis) {
-            return dt;
-        }
-    }
-    
-    // If all parsing attempts fail, log the issue and use current time
-    warn!("Could not parse datetime '{datetime_str}', using current time");
-    Utc::now()
-}
-
-/// Parse properties from a JSON value
-fn parse_properties(properties_json: &serde_json::Value) -> HashMap<String, String> {
-    let mut properties = HashMap::new();
-    
-    if let Some(obj) = properties_json.as_object() {
-        for (key, value) in obj {
-            if let Some(value_str) = value.as_str() {
-                properties.insert(key.clone(), value_str.to_string());
-            } else {
-                properties.insert(key.clone(), value.to_string());
-            }
-        }
-    }
-    
-    properties
-}
 
 #[cfg(test)]
 mod tests {

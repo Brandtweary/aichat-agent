@@ -3,11 +3,11 @@
 ## Build/Test Commands
 ```bash
 # In cyberorganism root
-cargo check                      # Quick syntax check
 cargo build                      # Build cyberorganism
 cargo test                       # Run all tests
 
 # In extensions/pkm_knowledge_graph/backend/
+cargo check                      # Quick syntax check
 cargo build                      # Build backend server
 cargo test                       # Run tests (quiet by default)
 RUST_LOG=info cargo run          # Run backend server (uses default 3s duration from config)
@@ -26,14 +26,22 @@ RUST_LOG=info cargo run -- --duration 10  # Override duration when needed
   - **logseq_dummy_graph/**: Test data for development
 
 ### PKM Backend Structure (extensions/pkm_knowledge_graph/backend/)
-- **main.rs**: HTTP server with endpoints for data sync and status
-- **graph_manager.rs**: Petgraph-based knowledge graph storage engine
-- **pkm_data.rs**: Shared data structures and validation logic
+- **src/**
+  - **main.rs**: Server orchestration, lifecycle management, Logseq launching
+  - **api.rs**: HTTP endpoints and request handlers for data sync
+  - **graph_manager.rs**: Petgraph-based knowledge graph storage engine
+  - **config.rs**: YAML configuration loading and validation
+  - **utils.rs**: Process management, datetime parsing, general utilities
+  - **logging.rs**: Custom formatter (file:line only for ERROR/WARN)
+  - **pkm_data.rs**: Shared data structures (PKMBlockData, PKMPageData)
+- **data/**: Graph persistence (knowledge_graph.json)
+- **tests/**: Integration tests
+- **Cargo.toml**: Dependencies and metadata
 
 ## Codebase Guidelines
-- Use tracing with appropriate levels (error, warn, etc.) for Rust logging
-- API endpoints should be RESTful
-- JS Plugin: console.log stays in browser only - use `KnowledgeGraphAPI.log.info/error/warn/debug/trace()` to send logs to the Rust server.
+- Rust backend: use `error!()`, `warn!()`, `info!()`, `debug!()`, `trace!()` macros for logging (tracing crate)
+- JS plugin: use `KnowledgeGraphAPI.log.error/warn/info/debug/trace()` to send logs to the Rust server
+- Don't make live LLM calls during tests
 
 ## Development Best Practices
 
@@ -58,13 +66,8 @@ RUST_LOG=info cargo run -- --duration 10  # Override duration when needed
 
 ### Eliminate Dead Code
 
-**Problematic Dead Code Scenarios - Investigate Each Case:**
-- **Planned features that were forgotten**: Incomplete implementations that were started but never finished
-- **Neglected code paths**: Logic that got accidentally inlined at calling sites, leaving the original function unused
-- **Remains of accidentally deleted features**: Uncommon but tricky - requires git history investigation to understand what was lost
-
-**Best Practices:**
 - **Case-by-case evaluation**: Never blindly remove dead code without understanding its context in the larger codebase.
+- **Consider multiple scenarios**: For each dead code instance, evaluate possible underlying causes (e.g., planned features that were forgotten, logic that got inlined elsewhere, or remains of deleted features requiring git history investigation).
 - **YAGNI Principle**: "You Ain't Gonna Need It" - Only keep what you actually need right now. Avoid building for imagined future requirements.
 - **Use `#[allow(dead_code)]` sparingly**: Only when the user explicitly confirms code is kept for forward-compatibility.
 - **Use `#[cfg(test)]` for test code caught by the dead code checker**: Consider that there is usually a cleaner solution for this, such as using a test fixture.

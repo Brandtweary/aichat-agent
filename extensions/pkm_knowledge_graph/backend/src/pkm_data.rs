@@ -1,3 +1,34 @@
+/**
+ * @module pkm_data
+ * @description Data structures for PKM (Personal Knowledge Management) entities
+ * 
+ * This module defines the core data structures used throughout the PKM Knowledge Graph
+ * system. These structures represent the serialized format of Logseq blocks and pages
+ * as they are transmitted from the JavaScript plugin to the Rust backend.
+ * 
+ * ## Core Types
+ * 
+ * - `PKMBlockData`: Represents a Logseq block (the fundamental unit of content)
+ * - `PKMPageData`: Represents a Logseq page (a container for blocks)
+ * - `PKMReference`: Extracted references from block/page content
+ * 
+ * ## Design Decisions
+ * 
+ * - All timestamps are transmitted as strings to handle various formats
+ * - Properties are stored as raw JSON values for flexibility
+ * - References are pre-extracted by JavaScript for performance
+ * - Optional fields use Option<T> with serde(default) for robustness
+ * 
+ * ## Validation
+ * 
+ * Both PKMBlockData and PKMPageData implement a validate() method that ensures:
+ * - Required fields are non-empty (id/name, timestamps)
+ * - Data integrity before graph storage
+ * 
+ * The validation is intentionally lightweight, focusing on critical fields
+ * while allowing flexibility for Logseq's evolving data model.
+ */
+
 use serde::{Deserialize, Serialize};
 
 /// PKM block data received from the frontend
@@ -150,4 +181,69 @@ where
     }
 
     deserializer.deserialize_any(TimestampVisitor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pkm_block_data_validation() {
+        let mut block = PKMBlockData {
+            id: "test-id".to_string(),
+            content: "Test content".to_string(),
+            created: "2024-01-01".to_string(),
+            updated: "2024-01-01".to_string(),
+            parent: None,
+            children: vec![],
+            page: None,
+            properties: serde_json::Value::Object(serde_json::Map::new()),
+            references: vec![],
+        };
+        
+        // Valid block should pass
+        assert!(block.validate().is_ok());
+        
+        // Empty ID should fail
+        block.id = "".to_string();
+        assert!(block.validate().is_err());
+    }
+
+    #[test]
+    fn test_pkm_page_data_validation() {
+        let mut page = PKMPageData {
+            name: "Test Page".to_string(),
+            created: "2024-01-01".to_string(),
+            updated: "2024-01-01".to_string(),
+            properties: serde_json::Value::Object(serde_json::Map::new()),
+            blocks: vec![],
+        };
+        
+        // Valid page should pass
+        assert!(page.validate().is_ok());
+        
+        // Empty name should fail
+        page.name = "".to_string();
+        assert!(page.validate().is_err());
+    }
+
+    #[test]
+    fn test_pkm_reference_struct() {
+        let page_ref = PKMReference {
+            r#type: "page".to_string(),
+            name: "TestPage".to_string(),
+            id: "".to_string(),
+        };
+        
+        let block_ref = PKMReference {
+            r#type: "block".to_string(),
+            name: "".to_string(),
+            id: "block-id".to_string(),
+        };
+        
+        assert_eq!(page_ref.r#type, "page");
+        assert_eq!(page_ref.name, "TestPage");
+        assert_eq!(block_ref.r#type, "block");
+        assert_eq!(block_ref.id, "block-id");
+    }
 }

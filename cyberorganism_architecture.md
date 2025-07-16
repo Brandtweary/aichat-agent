@@ -4,21 +4,17 @@ A guide to core modules, system design, and data flow for developers.
 
 ## Recent Updates
 
-### Development Workflow Enhancements Complete
-**Status**: Major improvements to development experience and production safety
-- **Logseq Auto-Launch**: Cross-platform executable detection (Linux/macOS/Windows) with automatic launch/shutdown coordination
-- **Centralized Logging**: Replaced all console.log calls with structured KnowledgeGraphAPI.log system mapping to Rust tracing levels
-- **Graceful Shutdown**: Server waits for sync completion before exit, protects in-flight HTTP requests via Axum graceful shutdown
-- **Development Duration**: Configurable auto-exit timer (default 3s) with production build warnings for safety
-- **Enhanced Plugin Coordination**: Added sync_complete message type and plugin initialization channels for proper lifecycle management
-
-### Petgraph Integration Complete
-**Status**: Replaced JSON datastore with direct petgraph implementation
-- **GraphManager Module**: New core component managing knowledge graph using petgraph's StableGraph
-- **Direct Graph Storage**: Eliminated intermediate JSON layer - PKM data now stored directly as graph nodes
-- **Improved Sync**: Fixed critical bugs preventing block synchronization (0→74 blocks)
-- **Batch Optimization**: Disabled auto-save during batch processing to prevent interleaved saves
-- **Comprehensive Testing**: 23 JavaScript tests, Rust unit tests, and integration tests all passing
+### Backend Module Refactoring Complete
+**Status**: Major refactoring to improve code organization and maintainability
+- **Module Extraction**: Extracted functionality from monolithic main.rs into focused modules
+- **New Module Structure**:
+  - `config.rs`: Configuration management, YAML loading, and JavaScript config validation
+  - `logging.rs`: Custom tracing formatter that shows file:line only for ERROR/WARN levels
+  - `api.rs`: Consolidated API types, handlers, and router configuration
+  - `utils.rs`: Cross-cutting utilities including process management, datetime parsing, JSON helpers
+- **Test Coverage**: Added unit tests across modules for regression prevention
+- **Maintained Functionality**: All code migrated exactly with no functional changes
+- **Improved Architecture**: Clear separation of concerns with focused, maintainable modules
 
 ## System Overview
 
@@ -42,7 +38,11 @@ cyberorganism/
 │   │   ├── config.js              # Configuration loader
 │   │   ├── backend/               # Rust knowledge graph server
 │   │   │   ├── src/
-│   │   │   │   ├── main.rs        # HTTP server and endpoints
+│   │   │   │   ├── main.rs        # HTTP server orchestration
+│   │   │   │   ├── config.rs      # Configuration management
+│   │   │   │   ├── logging.rs     # Custom tracing formatter
+│   │   │   │   ├── api.rs         # API types, handlers, routes
+│   │   │   │   ├── utils.rs       # Utility functions
 │   │   │   │   ├── graph_manager.rs # Petgraph-based knowledge graph storage
 │   │   │   │   └── pkm_data.rs     # Data structures and validation
 │   │   │   └── Cargo.toml
@@ -76,7 +76,29 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
   - Extracts references (page refs, block refs, tags)
 
 **Rust Backend Server**
-- **main.rs**: HTTP server with RESTful endpoints:
+- **main.rs**: HTTP server orchestration and application state management
+  - Manages server lifecycle, AppState, and high-level control flow
+  - Coordinates with extracted modules for specific functionality
+  - Handles Logseq launching and process termination
+- **config.rs**: Configuration management module
+  - Loads configuration from `config.yaml` with fallback to defaults
+  - Validates JavaScript plugin configuration matches Rust settings
+  - Provides Config, BackendConfig, LogseqConfig, DevelopmentConfig structs
+- **logging.rs**: Custom logging configuration
+  - Implements ConditionalLocationFormatter for cleaner log output
+  - Shows file:line information only for ERROR and WARN levels
+- **api.rs**: Consolidated API implementation
+  - API types: ApiResponse, PKMData, LogMessage
+  - All endpoint handlers: root, receive_data, sync operations, logging
+  - Router configuration via create_router()
+  - Helper functions for data processing and batch operations
+- **utils.rs**: Cross-cutting utility functions
+  - Logseq executable discovery (Windows/macOS/Linux) and process launching
+  - Process management: port checking, server info file, previous instance termination
+  - DateTime parsing with multiple format support (RFC3339, ISO 8601, Unix timestamps)
+  - JSON utilities: generic deserialization, JSON-to-HashMap conversion
+
+**API Endpoints** (unchanged):
   
   **Endpoints:**
   - `GET /` - Health check endpoint
@@ -190,8 +212,8 @@ Check Timestamps → Query All Pages/Blocks → Process in Batches → Update Ba
 
 ## Testing
 
-- **JavaScript**: `npm test` - Jest test suite with 23 tests covering data validation and reference extraction (silent by default)
-- **Rust**: `cargo test` - Backend component tests (quiet by default via .cargo/config.toml)
+- **JavaScript**: `npm test` - Jest test suite covering data validation and reference extraction (silent by default)
+- **Rust**: `cargo test` - Backend unit tests for core modules (quiet by default via .cargo/config.toml)
 - **Development**: `RUST_LOG=debug cargo run` - Run backend server with default 3-second duration for testing
 
 ## Development Features
