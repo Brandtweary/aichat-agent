@@ -66,6 +66,10 @@ struct Args {
     /// Run server for a specific duration in seconds (for testing)
     #[arg(long)]
     duration: Option<u64>,
+    
+    /// Force a full sync on next plugin connection
+    #[arg(long)]
+    force_full_sync: bool,
 }
 
 // Application state that will be shared between handlers
@@ -74,6 +78,7 @@ pub struct AppState {
     pub logseq_child: Mutex<Option<std::process::Child>>,
     pub plugin_init_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub sync_complete_tx: Mutex<Option<oneshot::Sender<()>>>,
+    pub force_full_sync: bool,
 }
 
 // Cleanup function to handle graceful shutdown
@@ -128,12 +133,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let graph_manager = GraphManager::new(data_dir)
         .map_err(|e| Box::<dyn Error>::from(format!("Graph manager error: {e:?}")))?;
     
+    // Log if force full sync is enabled
+    if args.force_full_sync {
+        info!("Force full sync enabled - next plugin connection will trigger a full sync");
+    }
+    
     // Create shared application state
     let app_state = Arc::new(AppState {
         graph_manager: Mutex::new(graph_manager),
         logseq_child: Mutex::new(None),
         plugin_init_tx: Mutex::new(None),
         sync_complete_tx: Mutex::new(None),
+        force_full_sync: args.force_full_sync,
     });
     
     // Set up exit handler

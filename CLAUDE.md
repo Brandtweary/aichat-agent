@@ -10,8 +10,11 @@ cargo test                       # Run all tests
 cargo check                      # Quick syntax check
 cargo build                      # Build backend server
 cargo test                       # Run tests (quiet by default)
-RUST_LOG=info cargo run          # Run backend server (uses default 3s duration from config)
-RUST_LOG=info cargo run -- --duration 10  # Override duration when needed
+RUST_LOG=debug cargo run          # Run backend server (uses default 3s duration from config)
+RUST_LOG=debug cargo run -- --force-full-sync  # Force a full sync on next plugin connection
+
+# In extensions/pkm_knowledge_graph/
+npm test                         # Run JavaScript plugin tests
 ```
 
 ## Architecture
@@ -40,8 +43,15 @@ RUST_LOG=info cargo run -- --duration 10  # Override duration when needed
 
 ## Codebase Guidelines
 - Rust backend: use `error!()`, `warn!()`, `info!()`, `debug!()`, `trace!()` macros for logging (tracing crate)
-- JS plugin: use `KnowledgeGraphAPI.log.error/warn/info/debug/trace()` to send logs to the Rust server
+- JS plugin: use `KnowledgeGraphAPI.log.error/warn/info/debug/trace()` to send logs to the Rust server; don't use console.log()
 - Don't make live LLM calls during tests
+
+### Log Level Guidelines
+- **INFO**: Use sparingly, only for messages you would want to see on every single run
+- **DEBUG**: Mainly used for temporary troubleshooting, don't clutter the codebase with these
+- **WARN**: Use for problematic behavior that can be fully recovered from, e.g. an invalid parameter which gracefully falls back to a default value
+- **ERROR**: Use for any true software bugs, when in doubt whether something should be warn vs error, set it as error
+- **TRACE**: Use for high-volume debugging, there's no reason to ever add trace logs preemptively
 
 ## Development Best Practices
 

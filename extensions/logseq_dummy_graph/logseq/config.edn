@@ -315,6 +315,10 @@
  ;; Hide specific block properties.
  ;; Example usage:
  ;; :block-hidden-properties #{:public :icon}
+ 
+ ;; Hide the cyberorganism timestamp property
+ ;; TODO: This should be done programmatically by the plugin in the future
+ :block-hidden-properties #{:cyberorganism-updated-ms}
 
  ;; Create a page for all properties.
  ;; Default value: true

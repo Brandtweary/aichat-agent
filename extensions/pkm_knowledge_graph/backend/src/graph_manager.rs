@@ -129,8 +129,9 @@ use std::io::{self, Read, Write};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use petgraph::stable_graph::{StableGraph, NodeIndex};
+use petgraph::visit::EdgeRef;
 use thiserror::Error;
-use tracing::{info, warn, error, debug};
+use tracing::{info, warn, error, debug, trace};
 
 use crate::pkm_data::{PKMBlockData, PKMPageData, PKMReference};
 use crate::utils::{parse_datetime, parse_properties};
@@ -414,8 +415,16 @@ impl GraphManager {
             (now - last_sync) / (1000 * 60 * 60)
         });
         
+        // Convert Unix timestamp to ISO string for JavaScript consumption
+        let last_full_sync_iso = self.last_full_sync.map(|timestamp| {
+            DateTime::<Utc>::from_timestamp_millis(timestamp)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| "invalid".to_string())
+        });
+        
         serde_json::json!({
             "last_full_sync": self.last_full_sync,
+            "last_full_sync_iso": last_full_sync_iso,
             "hours_since_sync": hours_since_sync,
             "full_sync_needed": self.is_full_sync_needed(),
             "node_count": self.graph.node_count(),
@@ -445,6 +454,104 @@ impl GraphManager {
         let now = Utc::now().timestamp_millis();
         self.last_full_sync = Some(now);
         self.save_graph()
+    }
+    
+    /// Verify PKM IDs and archive any nodes that no longer exist in the PKM
+    pub fn verify_and_archive_missing_nodes(&mut self, page_ids: &[String], block_ids: &[String]) -> GraphResult<(usize, String)> {
+        use std::collections::HashSet;
+        
+        // Convert ID lists to HashSets for O(1) lookup
+        let page_set: HashSet<&str> = page_ids.iter().map(|s| s.as_str()).collect();
+        let block_set: HashSet<&str> = block_ids.iter().map(|s| s.as_str()).collect();
+        
+        // Find nodes to archive
+        let mut nodes_to_archive = Vec::new();
+        let mut archived_pages = 0;
+        let mut archived_blocks = 0;
+        
+        debug!("Checking for nodes to archive: {} pages and {} blocks in PKM", 
+               page_ids.len(), block_ids.len());
+        
+        for (pkm_id, &node_idx) in &self.pkm_to_node {
+            if let Some(node) = self.graph.node_weight(node_idx) {
+                match node.node_type {
+                    NodeType::Page => {
+                        // Check both original and lowercase version
+                        let normalized_id = node.pkm_id.to_lowercase();
+                        if !page_set.contains(node.pkm_id.as_str()) && !page_set.contains(normalized_id.as_str()) {
+                            trace!("Archiving deleted page: {}", node.pkm_id);
+                            nodes_to_archive.push((pkm_id.clone(), node_idx, node.clone()));
+                            archived_pages += 1;
+                        }
+                    },
+                    NodeType::Block => {
+                        if !block_set.contains(node.pkm_id.as_str()) {
+                            trace!("Archiving deleted block: {}", node.pkm_id);
+                            nodes_to_archive.push((pkm_id.clone(), node_idx, node.clone()));
+                            archived_blocks += 1;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if nodes_to_archive.is_empty() {
+            return Ok((0, "No nodes to archive".to_string()));
+        }
+        
+        // Create archive data structure
+        let archive_data = serde_json::json!({
+            "timestamp": Utc::now().to_rfc3339(),
+            "archived_pages": archived_pages,
+            "archived_blocks": archived_blocks,
+            "nodes": nodes_to_archive.iter().map(|(pkm_id, idx, node)| {
+                let edges_out: Vec<_> = self.graph.edges(*idx)
+                    .map(|edge| {
+                        serde_json::json!({
+                            "target": edge.target().index(),
+                            "edge_type": edge.weight()
+                        })
+                    })
+                    .collect();
+                    
+                let edges_in: Vec<_> = self.graph.edges_directed(*idx, petgraph::Direction::Incoming)
+                    .map(|edge| {
+                        serde_json::json!({
+                            "source": edge.source().index(),
+                            "edge_type": edge.weight()
+                        })
+                    })
+                    .collect();
+                
+                serde_json::json!({
+                    "pkm_id": pkm_id,
+                    "node_index": idx.index(),
+                    "node_data": node,
+                    "edges_out": edges_out,
+                    "edges_in": edges_in
+                })
+            }).collect::<Vec<_>>()
+        });
+        
+        // Save archive file
+        let archive_filename = format!("archive_{}.json", Utc::now().format("%Y%m%d_%H%M%S"));
+        let archive_path = self.data_dir.join("archived_nodes").join(&archive_filename);
+        
+        trace!("Creating archive file: {}", archive_path.display());
+        std::fs::write(&archive_path, serde_json::to_string_pretty(&archive_data)?)?;
+        
+        // Remove nodes from graph
+        for (pkm_id, node_idx, _) in &nodes_to_archive {
+            self.graph.remove_node(*node_idx);
+            self.pkm_to_node.remove(pkm_id);
+        }
+        
+        // Save updated graph
+        self.save_graph()?;
+        
+        let message = format!("Archived {} pages and {} blocks to {}", 
+            archived_pages, archived_blocks, archive_filename);
+        Ok((nodes_to_archive.len(), message))
     }
     
     /// Create or update a node from PKM block data
@@ -532,9 +639,16 @@ impl GraphManager {
     /// Create or update a node from PKM page data
     pub fn create_or_update_node_from_pkm_page(&mut self, page_data: &PKMPageData) -> GraphResult<NodeIndex> {
         let page_name = &page_data.name;
+        let normalized_name_owned = page_name.to_lowercase();
+        let normalized_name = page_data.normalized_name.as_ref()
+            .unwrap_or(&normalized_name_owned);
+        
+        // Check if node exists under original name or normalized name
+        let existing_node = self.pkm_to_node.get(page_name)
+            .or_else(|| self.pkm_to_node.get(normalized_name));
         
         // Generate internal ID (compatible with datastore)
-        let internal_id = if let Some(&node_idx) = self.pkm_to_node.get(page_name) {
+        let internal_id = if let Some(&node_idx) = existing_node {
             // Node exists, get its internal ID
             self.graph.node_weight(node_idx)
                 .map(|node| node.id.clone())
@@ -556,16 +670,19 @@ impl GraphManager {
         };
         
         // Update or create node
-        let node_idx = if let Some(&existing_idx) = self.pkm_to_node.get(page_name) {
+        let node_idx = if let Some(&existing_idx) = existing_node {
             // Update existing node
             if let Some(node) = self.graph.node_weight_mut(existing_idx) {
                 *node = node_data;
             }
+            // Update mapping to use normalized name
+            self.pkm_to_node.insert(normalized_name.to_string(), existing_idx);
             existing_idx
         } else {
             // Create new node
             let idx = self.graph.add_node(node_data);
-            self.pkm_to_node.insert(page_name.clone(), idx);
+            // Insert with normalized name for consistent lookups
+            self.pkm_to_node.insert(normalized_name.to_string(), idx);
             idx
         };
         
@@ -591,7 +708,11 @@ impl GraphManager {
     
     /// Ensure a page exists in our graph, creating it if necessary
     fn ensure_page_exists(&mut self, page_name: &str) -> NodeIndex {
-        if let Some(&idx) = self.pkm_to_node.get(page_name) {
+        let normalized_name = page_name.to_lowercase();
+        
+        // Check both original and normalized names
+        if let Some(&idx) = self.pkm_to_node.get(page_name)
+            .or_else(|| self.pkm_to_node.get(&normalized_name)) {
             return idx;
         }
         
@@ -607,7 +728,8 @@ impl GraphManager {
         };
         
         let idx = self.graph.add_node(node_data);
-        self.pkm_to_node.insert(page_name.to_string(), idx);
+        // Use normalized name for consistent lookups
+        self.pkm_to_node.insert(normalized_name, idx);
         
         idx
     }
@@ -725,6 +847,7 @@ mod tests {
     fn create_test_page(name: &str) -> PKMPageData {
         PKMPageData {
             name: name.to_string(),
+            normalized_name: Some(name.to_lowercase()),
             created: "2024-01-01T00:00:00Z".to_string(),
             updated: "2024-01-01T00:00:00Z".to_string(),
             properties: serde_json::json!({}),
@@ -745,8 +868,8 @@ mod tests {
         assert_eq!(node.content, "TestPage");
         assert_eq!(node.node_type, NodeType::Page);
         
-        // Verify mapping was created
-        assert_eq!(manager.pkm_to_node.get("TestPage"), Some(&node_idx));
+        // Verify mapping was created with normalized name
+        assert_eq!(manager.pkm_to_node.get("testpage"), Some(&node_idx));
     }
     
     #[test]
@@ -763,7 +886,7 @@ mod tests {
         assert_eq!(node.node_type, NodeType::Block);
         
         // Verify page was auto-created
-        assert!(manager.pkm_to_node.contains_key("TestPage"));
+        assert!(manager.pkm_to_node.contains_key("testpage"));
     }
     
     #[test]
@@ -843,9 +966,9 @@ mod tests {
         
         let block_idx = manager.create_or_update_node_from_pkm_block(&block).unwrap();
         
-        // Verify referenced page was created
-        assert!(manager.pkm_to_node.contains_key("Another Page"));
-        let ref_page_idx = manager.pkm_to_node["Another Page"];
+        // Verify referenced page was created (normalized to lowercase)
+        assert!(manager.pkm_to_node.contains_key("another page"));
+        let ref_page_idx = manager.pkm_to_node["another page"];
         
         // Verify page reference edge exists
         let edges: Vec<_> = manager.graph.edges_connecting(block_idx, ref_page_idx).collect();
@@ -949,7 +1072,7 @@ mod tests {
             // Verify data was loaded
             assert_eq!(manager.graph.node_count(), node_count);
             assert_eq!(manager.graph.edge_count(), edge_count);
-            assert!(manager.pkm_to_node.contains_key("TestPage"));
+            assert!(manager.pkm_to_node.contains_key("testpage"));
             assert!(manager.pkm_to_node.contains_key("block-123"));
         }
     }
@@ -1006,7 +1129,7 @@ mod tests {
         
         let idx1 = manager.create_or_update_node_from_pkm_block(&block1).unwrap();
         let idx2 = manager.create_or_update_node_from_pkm_block(&block2).unwrap();
-        let target_idx = manager.pkm_to_node["Target"];
+        let target_idx = manager.pkm_to_node["target"];
         
         // Each block should have exactly one edge to Target
         let edges1: Vec<_> = manager.graph.edges_connecting(idx1, target_idx).collect();

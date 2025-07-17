@@ -120,6 +120,13 @@ window.KnowledgeGraphDataProcessor.processBlockData = async function(block) {
       return null;
     }
     
+    // Also filter out blocks that only contain properties (no actual content)
+    // This handles blocks that only have our timestamp property
+    const contentWithoutProperties = blockEntity.content.replace(/^[a-zA-Z0-9-]+::\s*[^\n]*\n?/gm, '').trim();
+    if (contentWithoutProperties === '') {
+      return null;
+    }
+    
     // Get the page that contains this block
     const page = blockEntity.page ? await logseq.Editor.getPage(blockEntity.page.id) : null;
     
@@ -193,6 +200,7 @@ window.KnowledgeGraphDataProcessor.processPageData = async function(page) {
     
     return {
       name: page.name,
+      normalized_name: page.name.toLowerCase(),
       created: pageEntity.created || new Date().toISOString(),
       updated: pageEntity.updated || new Date().toISOString(),
       properties: properties,

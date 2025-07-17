@@ -44,7 +44,8 @@
  * Returns current synchronization status:
  * ```json
  * {
- *   "last_full_sync": "2023-10-20T15:30:45Z",  // ISO timestamp or null
+ *   "last_full_sync": 1697815845000,            // Unix timestamp in ms or null
+ *   "last_full_sync_iso": "2023-10-20T15:30:45Z", // ISO timestamp string or null
  *   "hours_since_sync": 2.5,                    // Float hours
  *   "full_sync_needed": false,                  // True if >2 hours or never
  *   "node_count": 1234,                         // Total graph nodes
@@ -55,6 +56,17 @@
  * ### PATCH /sync
  * Updates the last full sync timestamp after successful database synchronization.
  * Called by JavaScript plugin every 2 hours after complete graph sync.
+ * 
+ * ### POST /sync/verify
+ * Verifies PKM IDs and archives any nodes that no longer exist in the PKM.
+ * Request body:
+ * ```json
+ * {
+ *   "pages": ["Page1", "Page2", ...],    // All current page names
+ *   "blocks": ["uuid1", "uuid2", ...]    // All current block UUIDs
+ * }
+ * ```
+ * Archives deleted nodes to timestamped JSON files in archived_nodes/
  * 
  * ### POST /log
  * Receives log messages from JavaScript plugin and routes to Rust tracing system.
@@ -132,6 +144,13 @@ pub struct LogMessage {
     pub details: Option<serde_json::Value>,
 }
 
+// PKM ID verification request - sent after full sync to detect deletions
+#[derive(Debug, Deserialize)]
+pub struct PkmIdVerification {
+    pub pages: Vec<String>,
+    pub blocks: Vec<String>,
+}
+
 // ===== Route Configuration =====
 
 /// Create and configure the API router
@@ -141,6 +160,7 @@ pub fn create_router(app_state: Arc<AppState>) -> Router {
         .route("/data", post(receive_data))
         .route("/sync/status", get(get_sync_status))
         .route("/sync", patch(update_sync_timestamp))
+        .route("/sync/verify", post(verify_pkm_ids))
         .route("/log", post(receive_log))
         .with_state(app_state)
 }
@@ -156,7 +176,17 @@ pub async fn root() -> &'static str {
 pub async fn get_sync_status(
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
-    let status = state.graph_manager.lock().unwrap().get_sync_status();
+    let mut status = state.graph_manager.lock().unwrap().get_sync_status();
+    
+    // Add force_full_sync flag to the response
+    if let Some(obj) = status.as_object_mut() {
+        // Override full_sync_needed if force flag is set
+        if state.force_full_sync {
+            obj.insert("full_sync_needed".to_string(), serde_json::Value::Bool(true));
+            obj.insert("force_full_sync".to_string(), serde_json::Value::Bool(true));
+        }
+    }
+    
     Json(status)
 }
 
@@ -242,6 +272,35 @@ pub async fn receive_log(
         success: true,
         message: "Log received".to_string(),
     })
+}
+
+// Endpoint to verify PKM IDs and detect deletions
+pub async fn verify_pkm_ids(
+    State(state): State<Arc<AppState>>,
+    Json(verification): Json<PkmIdVerification>,
+) -> Json<ApiResponse> {
+    let mut graph_manager = state.graph_manager.lock().unwrap();
+    
+    match graph_manager.verify_and_archive_missing_nodes(&verification.pages, &verification.blocks) {
+        Ok((archived_count, message)) => {
+            if archived_count > 0 {
+                info!("Archived {} nodes: {}", archived_count, message);
+            } else {
+                debug!("No nodes to archive");
+            }
+            Json(ApiResponse {
+                success: true,
+                message,
+            })
+        },
+        Err(e) => {
+            error!("Error during PKM ID verification: {:?}", e);
+            Json(ApiResponse {
+                success: false,
+                message: format!("Error during verification: {}", e),
+            })
+        }
+    }
 }
 
 // Endpoint to receive data from the PKM plugin

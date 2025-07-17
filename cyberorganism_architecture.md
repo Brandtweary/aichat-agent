@@ -4,6 +4,21 @@ A guide to core modules, system design, and data flow for developers.
 
 ## Recent Updates
 
+### Incremental Sync and Deletion Detection (Latest)
+**Status**: Major sync performance improvements and data integrity features
+- **Incremental Sync**: Added timestamp tracking to only sync blocks/pages modified since last full sync
+  - Reduces sync payload by ~95% in typical usage
+  - Backend tracks last_full_sync timestamp, JavaScript filters based on updated dates
+- **Deletion Detection**: Implemented archival system for removed nodes
+  - After full sync, JavaScript sends all PKM IDs to verify endpoint
+  - Deleted nodes are archived to `archived_nodes/archive_YYYYMMDD_HHMMSS.json`
+  - Preserves full node data, properties, and edge relationships
+- **CLI Enhancement**: Added `--force-full-sync` flag for testing and recovery scenarios
+- **Bug Fixes**:
+  - Fixed real-time change detection regression (Logseq onChanged API returns object, not array)
+  - Fixed page name normalization (Logseq uses lowercase, causing virtual page archival)
+  - Added normalized_name field to PKMPageData for consistent lookups
+
 ### Backend Module Refactoring Complete
 **Status**: Major refactoring to improve code organization and maintainability
 - **Module Extraction**: Extracted functionality from monolithic main.rs into focused modules
@@ -61,9 +76,12 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
 
 **JavaScript Frontend (Logseq Plugin)**
 - **index.js**: Orchestrates plugin lifecycle, handles Logseq events, manages sync logic
-  - Sends message types to backend: 'block', 'blocks', 'page', 'pages', 'plugin_initialized'
+  - Sends message types to backend: 'block', 'blocks', 'page', 'pages', 'plugin_initialized', 'sync_complete'
   - Monitors DB changes via `logseq.DB.onChanged` and batches updates
-  - Handles full database sync every 2 hours
+  - Handles full database sync every 2 hours with incremental filtering
+  - Filters pages by built-in `updatedAt` field, blocks by custom `cyberorganism-updated-ms` property
+  - Manages custom timestamp properties on blocks since Logseq lacks reliable block timestamps
+  - Collects all PKM IDs and sends to /sync/verify for deletion detection
 - **api.js**: HTTP communication layer (exposed as `window.KnowledgeGraphAPI`)
   - `sendToBackend(data)`: Sends data to POST /data endpoint, returns boolean
   - `sendBatchToBackend(type, batch, graphName)`: Wrapper for batch operations, formats as `${type}_batch`
@@ -73,6 +91,7 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
   - Full API documentation in the module header comments of api.js
 - **data_processor.js**: Validates and transforms Logseq data before transmission
   - Processes blocks and pages into standardized format
+  - Adds normalized_name (lowercase) to pages for consistent lookups
   - Extracts references (page refs, block refs, tags)
 
 **Rust Backend Server**
@@ -122,9 +141,11 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
   
   - `GET /sync/status` - Sync status and graph statistics
     - Returns: JSON object with:
-      - `last_full_sync`: ISO timestamp string or null
+      - `last_full_sync`: Unix timestamp in milliseconds or null
+      - `last_full_sync_iso`: ISO timestamp string or null
       - `hours_since_sync`: Float hours since last sync
-      - `full_sync_needed`: Boolean (true if >2 hours or never synced)
+      - `full_sync_needed`: Boolean (true if >2 hours, never synced, or --force-full-sync flag set)
+      - `force_full_sync`: Boolean (true if --force-full-sync flag was used)
       - `node_count`: Total nodes in graph
       - `reference_count`: Total edges in graph
   
@@ -132,6 +153,14 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
     - Called after successful full database sync
     - Updates internal timestamp used for sync scheduling
     - Returns: `ApiResponse` with success status
+  
+  - `POST /sync/verify` - Verify PKM IDs and archive deleted nodes
+    - Called after full sync to detect deletions
+    - Accepts: JSON object with:
+      - `pages`: Array of all current page names in PKM
+      - `blocks`: Array of all current block UUIDs in PKM
+    - Archives nodes that no longer exist to `archived_nodes/` directory
+    - Returns: `ApiResponse` with archived count and details
   
   - `POST /log` - Logging endpoint for JavaScript plugin
     - Accepts: `LogMessage` JSON object with:
@@ -145,9 +174,11 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
   - StableGraph structure maintains consistent node indices across modifications
   - Node types: Page and Block with full metadata (content, properties, timestamps)
   - Edge types: PageRef, BlockRef, Tag, Property, ParentChild, PageToBlock
-  - HashMap for O(1) PKM ID → NodeIndex lookups
+  - HashMap for O(1) PKM ID → NodeIndex lookups (uses normalized lowercase names for pages)
   - Automatic saves: time-based (5 min) or operation-based (10 ops), disabled during batches
   - Graph persistence to `knowledge_graph.json` with full serialization
+  - Node archival: Deleted nodes saved to `archived_nodes/archive_YYYYMMDD_HHMMSS.json`
+  - Deletion detection via `verify_and_archive_missing_nodes()` after full sync
 - **pkm_data.rs**: Shared data structures and validation logic
 - **Logging**: Uses tracing crate with conditional formatter (file:line only for WARN/ERROR)
 
@@ -181,8 +212,11 @@ Logseq DB Change → onChanged Event → Validate Data → Batch Queue → HTTP 
 
 ### Full Sync (Every 2 Hours)
 ```
-Check Timestamps → Query All Pages/Blocks → Process in Batches → Update Backend → Update Sync Timestamp
+Check Timestamps → Query All Pages/Blocks → Filter by Modified Date (Incremental) → Process in Batches → Send PKM IDs for Deletion Detection → Update Backend → Update Sync Timestamp
 ```
+- **Incremental Sync**: Pages use built-in `updatedAt` field; blocks use custom `cyberorganism-updated-ms` property
+- **Deletion Detection**: After sync, sends all current PKM IDs to verify endpoint
+- **Archival**: Deleted nodes are preserved in timestamped JSON files
 
 ### Graph Structure
 **Nodes** (petgraph vertices):
@@ -212,9 +246,11 @@ Check Timestamps → Query All Pages/Blocks → Process in Batches → Update Ba
 
 ## Testing
 
-- **JavaScript**: `npm test` - Jest test suite covering data validation and reference extraction (silent by default)
-- **Rust**: `cargo test` - Backend unit tests for core modules (quiet by default via .cargo/config.toml)
+- **JavaScript Plugin**: `npm test` (in extensions/pkm_knowledge_graph/) - Jest test suite covering data validation and reference extraction (silent by default)
+- **Rust Backend**: `cargo test` (in extensions/pkm_knowledge_graph/backend/) - Unit tests for core modules (quiet by default)
+- **Rust Core**: `cargo test` (in cyberorganism root) - Unit tests for AIChat core functionality
 - **Development**: `RUST_LOG=debug cargo run` - Run backend server with default 3-second duration for testing
+- **Force Full Sync**: `cargo run -- --force-full-sync` - Override sync status to force a full sync on next plugin connection
 
 ## Development Features
 

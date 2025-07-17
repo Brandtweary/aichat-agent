@@ -91,6 +91,8 @@ impl PKMBlockData {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PKMPageData {
     pub name: String,
+    #[serde(default)]
+    pub normalized_name: Option<String>,
     #[serde(deserialize_with = "deserialize_timestamp")]
     pub created: String,
     #[serde(deserialize_with = "deserialize_timestamp")]
@@ -213,6 +215,7 @@ mod tests {
     fn test_pkm_page_data_validation() {
         let mut page = PKMPageData {
             name: "Test Page".to_string(),
+            normalized_name: Some("test page".to_string()),
             created: "2024-01-01".to_string(),
             updated: "2024-01-01".to_string(),
             properties: serde_json::Value::Object(serde_json::Map::new()),

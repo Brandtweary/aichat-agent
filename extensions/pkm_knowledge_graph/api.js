@@ -376,15 +376,16 @@ window.KnowledgeGraphAPI.updateSyncTimestamp = async function() {
  * @param {string} type - Type of data (block or page)
  * @param {Array} batch - Array of data items
  * @param {string} graphName - Name of the graph
+ * @param {string} source - Source of the sync (default: 'Full Sync')
  */
-window.KnowledgeGraphAPI.sendBatchToBackend = async function(type, batch, graphName) {
+window.KnowledgeGraphAPI.sendBatchToBackend = async function(type, batch, graphName, source = 'Full Sync') {
   if (batch.length === 0) return;
   
   console.log(`Sending batch of ${batch.length} ${type}s to backend`);
   
   try {
     await window.KnowledgeGraphAPI.sendToBackend({
-      source: 'Full Sync',
+      source: source,
       timestamp: new Date().toISOString(),
       graphName: graphName,
       type_: `${type}_batch`,
