@@ -35,6 +35,47 @@
  * 
  * Dependencies:
  * - Logseq API: For retrieving block and page data
+ * 
+ * BlockEntity Interface Reference:
+ * ================================
+ * The complete BlockEntity interface from the official Logseq plugin API includes these fields:
+ * 
+ * ```typescript
+ * export interface BlockEntity {
+ *   // Core fields
+ *   id: number                    // Database ID
+ *   uuid: string                  // Block UUID
+ *   content: string              // Block content
+ *   format: 'markdown' | 'org'   // Block format
+ *   left: IEntityID              // Left reference
+ *   parent: IEntityID            // Parent block reference
+ *   page: IEntityID              // Page reference
+ *   unordered: boolean           // Whether block is unordered
+ *   
+ *   // Optional fields
+ *   anchor?: string
+ *   body?: any
+ *   children?: Array<BlockEntity | BlockUUIDTuple>
+ *   container?: string
+ *   file?: IEntityID
+ *   level?: number
+ *   title?: Array<any>
+ *   properties?: Record<string, any>
+ *   
+ *   // Timestamp-related field
+ *   meta?: {
+ *     timestamps: any,           // Contains timestamp data (structure unspecified)
+ *     properties: any,
+ *     startPos: number,
+ *     endPos: number
+ *   }
+ *   
+ *   [key: string]: any          // Index signature for additional properties
+ * }
+ * ```
+ * 
+ * Note: The meta.timestamps field exists but is unreliable and poorly documented. 
+ * We use custom properties for timestamp tracking instead.
  */
 
 // Create a global object for data processing functions
