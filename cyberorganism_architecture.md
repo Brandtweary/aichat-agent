@@ -4,45 +4,24 @@ A guide to core modules, system design, and data flow for developers.
 
 ## Recent Updates
 
-### 3-Tiered Sync Architecture (Latest)
-**Status**: Implemented flexible sync system with configurable intervals and clear separation of sync types
-- **3-Tiered Sync System**:
-  1. **Real-time Change Tracking**: Always on, syncs individual changes immediately
-  2. **Incremental Database Sync**: Default every 2 hours, syncs only modified content
-  3. **Full Database Sync**: Default every 7 days (disabled by default), re-indexes entire PKM
-- **Configuration System**: New sync configuration in `config.yaml`:
-  - `incremental_interval_hours`: Hours between incremental syncs (default: 2)
-  - `full_interval_hours`: Hours between full database syncs (default: 168/7 days)
-  - `enable_full_sync`: Whether to perform full syncs at all (default: false)
-- **Timestamp Tracking**:
-  - Separate timestamps for incremental (`last_incremental_sync`) and full (`last_full_sync`) syncs
-  - Pages use built-in `updatedAt` field for incremental sync filtering
-  - Blocks use custom `cyberorganism-updated-ms` property managed by the plugin
-- **CLI Enhancements**:
-  - `--force-incremental-sync`: Force an incremental sync on next plugin connection
-  - `--force-full-sync`: Force a full database sync on next plugin connection
-- **Deletion Detection**: After syncs, JavaScript sends all PKM IDs to verify endpoint
-  - Deleted nodes are archived to `archived_nodes/archive_YYYYMMDD_HHMMSS.json`
-  - Preserves full node data, properties, and edge relationships
-- **API Updates**:
-  - `/sync/status` now returns both sync type statuses and configuration
-  - `PATCH /sync` accepts sync type parameter to update correct timestamp
-- **JavaScript Updates**:
-  - Renamed `syncFullDatabase()` to `syncDatabase(syncType)` for clarity
-  - Added `checkSyncStatus()` to determine which sync type is needed
-  - Fixed force flags to properly override configuration settings
-
-### Backend Module Refactoring Complete
-**Status**: Major refactoring to improve code organization and maintainability
-- **Module Extraction**: Extracted functionality from monolithic main.rs into focused modules
-- **New Module Structure**:
-  - `config.rs`: Configuration management, YAML loading, and JavaScript config validation
-  - `logging.rs`: Custom tracing formatter that shows file:line only for ERROR/WARN levels
-  - `api.rs`: Consolidated API types, handlers, and router configuration
-  - `utils.rs`: Cross-cutting utilities including process management, datetime parsing, JSON helpers
-- **Test Coverage**: Added unit tests across modules for regression prevention
-- **Maintained Functionality**: All code migrated exactly with no functional changes
-- **Improved Architecture**: Clear separation of concerns with focused, maintainable modules
+### JavaScript Plugin Modularization (Latest)
+**Status**: Refactored JavaScript plugin for improved maintainability and code quality
+- **Module Extraction**: Separated sync orchestration logic from main plugin file
+  - Created `sync.js` module containing all database synchronization functionality (~400 lines)
+  - Reduced `index.js` from 892 to 475 lines (47% reduction)
+  - Follows browser-compatible module pattern using global window objects
+- **Test Infrastructure**: Expanded Jest test coverage
+  - Added comprehensive tests for `sync.js` module (tree traversal, sync status logic)
+  - Configured ESLint for dead code detection across different environments
+  - All tests passing with proper mocking of browser and Logseq APIs
+- **Code Quality Improvements**:
+  - Removed deprecated functions (`sendDiagnosticInfo`, unused `checkBackendAvailability`)
+  - Eliminated slash command for sync status (command-line debugging preferred)
+  - ESLint configuration handles browser, Jest, and Node.js environments separately
+- **Module Structure**:
+  - `sync.js`: Contains `syncDatabase()`, `checkSyncStatus()`, `processBlocksRecursively()`, and tree utilities
+  - `index.js`: Retains plugin lifecycle, real-time sync handling, and event management
+  - Clear separation between scheduled sync operations and real-time change processing
 
 ## System Overview
 
@@ -60,7 +39,8 @@ cyberorganism/
 │   └── function/                  # Function calling framework
 ├── extensions/                    # Cyberorganism-specific features
 │   ├── pkm_knowledge_graph/       # Knowledge graph integration
-│   │   ├── index.js               # Logseq plugin entry point
+│   │   ├── index.js               # Logseq plugin entry point (orchestration)
+│   │   ├── sync.js                # Database synchronization module
 │   │   ├── api.js                 # Backend communication layer
 │   │   ├── data_processor.js      # Data validation and processing
 │   │   ├── config.js              # Configuration loader
@@ -87,16 +67,22 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
 ### PKM Knowledge Graph Extension
 
 **JavaScript Frontend (Logseq Plugin)**
-- **index.js**: Orchestrates plugin lifecycle, handles Logseq events, manages sync logic
-  - Sends message types to backend: 'block', 'blocks', 'page', 'pages', 'plugin_initialized', 'sync_complete'
-  - Monitors DB changes via `logseq.DB.onChanged` and batches updates (real-time sync)
+- **index.js**: Plugin lifecycle management and real-time event handling
+  - Initializes plugin and verifies module dependencies
+  - Monitors DB changes via `logseq.DB.onChanged` for real-time sync
+  - Handles route changes and plugin initialization
+  - Exposes helper functions to other modules via window globals
+  - Manages timestamp queue for block property updates
+  - Coordinates between sync operations and real-time changes
+- **sync.js**: Database synchronization orchestration module
   - Implements 3-tiered sync system with configurable intervals:
-    - Real-time: Individual changes synced immediately
+    - Real-time: Individual changes synced immediately (handled by index.js)
     - Incremental: Every 2 hours (default), syncs only modified content
     - Full: Every 7 days (default, disabled), re-indexes entire PKM
   - Filters pages by built-in `updatedAt` field, blocks by custom `cyberorganism-updated-ms` property
-  - Manages custom timestamp properties on blocks since Logseq lacks reliable block timestamps
-  - Collects all PKM IDs and sends to /sync/verify for deletion detection
+  - Manages sync status checking and timestamp updates
+  - Handles tree traversal for block counting and ID collection
+  - Sends all PKM IDs to /sync/verify for deletion detection
 - **api.js**: HTTP communication layer (exposed as `window.KnowledgeGraphAPI`)
   - `sendToBackend(data)`: Sends data to POST /data endpoint, returns boolean
   - `sendBatchToBackend(type, batch, graphName)`: Wrapper for batch operations, formats as `${type}_batch`
@@ -284,7 +270,11 @@ Check Last Full Sync → Query All Pages/Blocks → Process ALL Content (No Filt
 
 ## Testing
 
-- **JavaScript Plugin**: `npm test` (in extensions/pkm_knowledge_graph/) - Jest test suite covering data validation and reference extraction (silent by default)
+- **JavaScript Plugin**: `npm test` (in extensions/pkm_knowledge_graph/) - Jest test suite with comprehensive coverage:
+  - `data_processor.test.js`: Tests for reference extraction and data validation
+  - `sync.test.js`: Tests for sync status logic, tree traversal utilities
+  - Browser environment mocking for Logseq plugin testing
+- **Code Quality**: `npx eslint *.js` - ESLint configured for browser, Jest, and Node.js environments
 - **Rust Backend**: `cargo test` (in extensions/pkm_knowledge_graph/backend/) - Unit tests for core modules (quiet by default)
 - **Rust Core**: `cargo test` (in cyberorganism root) - Unit tests for AIChat core functionality
 - **Development**: `RUST_LOG=debug cargo run` - Run backend server with default 3-second duration for testing
