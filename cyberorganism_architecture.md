@@ -276,8 +276,8 @@ Check Last Full Sync → Query All Pages/Blocks → Process ALL Content (No Filt
   - Browser environment mocking for Logseq plugin testing
 - **Code Quality**: `npx eslint *.js` - ESLint configured for browser, Jest, and Node.js environments
 - **Rust Backend**: `cargo test` (in extensions/pkm_knowledge_graph/backend/) - Unit tests for core modules (quiet by default)
-- **Rust Core**: `cargo test` (in cyberorganism root) - Unit tests for AIChat core functionality
-- **Development**: `RUST_LOG=debug cargo run` - Run backend server with default 3-second duration for testing
+- **Rust Core**: `cargo test` (in cyberorganism root) - Unit tests for AIChat core functionality (rarely needed)
+- **Development**: `RUST_LOG=debug cargo run` (from backend directory) - Run backend server with default 3-second duration for testing
 - **Force Incremental Sync**: `cargo run -- --force-incremental-sync` - Override sync status to force an incremental sync on next plugin connection
 - **Force Full Sync**: `cargo run -- --force-full-sync` - Override sync status to force a full database sync on next plugin connection
 

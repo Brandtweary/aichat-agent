@@ -2,7 +2,9 @@
 
 ## Build/Test Commands
 ```bash
-# In cyberorganism root (rarely needed while developing backend - this is currently just an aichat wrapper)
+cd extensions/pkm_knowledge_graph/backend/  # cd into backend directory once at session start
+
+# In cyberorganism root (rarely needed while developing backend - cargo will warn about this)
 cargo build                      # Build cyberorganism
 cargo test                       # Run all tests
 
