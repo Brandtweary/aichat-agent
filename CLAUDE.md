@@ -10,12 +10,17 @@ cargo test                       # Run all tests
 cargo check                      # Quick syntax check
 cargo build                      # Build backend server
 cargo test                       # Run tests (quiet by default)
-RUST_LOG=debug cargo run          # Run backend server (uses default 3s duration from config)
-RUST_LOG=debug cargo run -- --force-full-sync  # Force a full sync on next plugin connection
+RUST_LOG=debug cargo run         # Run backend server with debug logging (default: 3s duration)
 
 # In extensions/pkm_knowledge_graph/
 npm test                         # Run JavaScript plugin tests
 ```
+
+## CLI Flags (PKM Backend Server)
+
+- `--duration <SECONDS>`: Run server for a specific duration in seconds (for testing)
+- `--force-incremental-sync`: Force an incremental sync to run on next plugin connection
+- `--force-full-sync`: Force a full database sync to run on next plugin connection
 
 ## Architecture
 - See `cyberorganism_architecture.md` for comprehensive codebase architecture

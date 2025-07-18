@@ -54,7 +54,7 @@ mod api;
 mod utils;
 
 use graph_manager::GraphManager;
-use config::{load_config, validate_js_plugin_config};
+use config::{load_config, validate_js_plugin_config, Config};
 use logging::init_logging;
 use api::create_router;
 use utils::{launch_logseq, SERVER_INFO_FILE, terminate_previous_instance, write_server_info, find_available_port};
@@ -67,9 +67,13 @@ struct Args {
     #[arg(long)]
     duration: Option<u64>,
     
-    /// Force a full sync on next plugin connection
+    /// Force a full database sync on next plugin connection
     #[arg(long)]
     force_full_sync: bool,
+    
+    /// Force an incremental sync on next plugin connection
+    #[arg(long)]
+    force_incremental_sync: bool,
 }
 
 // Application state that will be shared between handlers
@@ -79,6 +83,8 @@ pub struct AppState {
     pub plugin_init_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub sync_complete_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub force_full_sync: bool,
+    pub force_incremental_sync: bool,
+    pub config: Config,
 }
 
 // Cleanup function to handle graceful shutdown
@@ -133,9 +139,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let graph_manager = GraphManager::new(data_dir)
         .map_err(|e| Box::<dyn Error>::from(format!("Graph manager error: {e:?}")))?;
     
-    // Log if force full sync is enabled
+    // Log if force sync is enabled
     if args.force_full_sync {
-        info!("Force full sync enabled - next plugin connection will trigger a full sync");
+        info!("Force full sync enabled - next plugin connection will trigger a full database sync");
+    }
+    if args.force_incremental_sync {
+        info!("Force incremental sync enabled - next plugin connection will trigger an incremental sync");
     }
     
     // Create shared application state
@@ -145,6 +154,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         plugin_init_tx: Mutex::new(None),
         sync_complete_tx: Mutex::new(None),
         force_full_sync: args.force_full_sync,
+        force_incremental_sync: args.force_incremental_sync,
+        config: config.clone(),
     });
     
     // Set up exit handler

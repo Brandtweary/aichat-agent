@@ -366,8 +366,10 @@ async function handleDBChanges(changesData) {
 //=============================================================================
 
 // Sync all pages and blocks in the database
-async function syncFullDatabase() {
-  KnowledgeGraphAPI.log.info('Starting full database sync');
+// syncType: 'incremental' (default) or 'full'
+async function syncDatabase(syncType = 'incremental') {
+  const syncTypeDisplay = syncType === 'full' ? 'full database' : 'incremental';
+  KnowledgeGraphAPI.log.info(`Starting ${syncTypeDisplay} sync`);
   
   
   // Check if backend is available with retry logic for critical full sync
@@ -381,23 +383,29 @@ async function syncFullDatabase() {
   try {
     // Get last sync timestamp from backend
     let lastSyncDate = null;
-    try {
-      const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/sync/status'), {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        const status = await response.json();
-        if (status.last_full_sync_iso) {
-          lastSyncDate = new Date(status.last_full_sync_iso);
-        } else {
+    if (syncType === 'incremental') {
+      try {
+        const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/sync/status'), {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const status = await response.json();
+          if (status.last_incremental_sync_iso) {
+            lastSyncDate = new Date(status.last_incremental_sync_iso);
+            KnowledgeGraphAPI.log.debug(`Last incremental sync: ${status.last_incremental_sync_iso}`);
+          } else {
+            KnowledgeGraphAPI.log.debug('No previous incremental sync found');
+          }
         }
+      } catch (error) {
+        KnowledgeGraphAPI.log.warn('Failed to get sync status, treating as first sync', {error: error.message});
       }
-    } catch (error) {
-      KnowledgeGraphAPI.log.warn('Failed to get sync status, falling back to full sync', {error: error.message});
+    } else {
+      KnowledgeGraphAPI.log.info('Performing full database sync - no timestamp filtering');
     }
     
     // Reset validation issues tracker
@@ -423,9 +431,9 @@ async function syncFullDatabase() {
     }
     
     
-    // Filter pages based on last sync timestamp if available
+    // Filter pages based on last sync timestamp if doing incremental sync
     let pagesToSync = allPages;
-    if (lastSyncDate) {
+    if (syncType === 'incremental' && lastSyncDate) {
       pagesToSync = allPages.filter(page => {
         // If page has updated timestamp, check if it's newer than last sync
         if (page.updatedAt) {
@@ -436,7 +444,9 @@ async function syncFullDatabase() {
         return true;
       });
       
+      KnowledgeGraphAPI.log.info(`Incremental sync: ${pagesToSync.length} of ${allPages.length} pages modified`);
     } else {
+      KnowledgeGraphAPI.log.info(`Full sync: processing all ${allPages.length} pages`);
     }
     
     // Track progress
@@ -477,7 +487,8 @@ async function syncFullDatabase() {
         if (pageBlocksTree) {
           
           const blockStats = { skipped: 0, modified: 0, noTimestamp: 0 };
-          await processBlocksRecursively(pageBlocksTree, graphName, globalBlockBatch, 100, lastSyncDate, blockStats);
+          const syncDateForBlocks = syncType === 'incremental' ? lastSyncDate : null;
+          await processBlocksRecursively(pageBlocksTree, graphName, globalBlockBatch, 100, syncDateForBlocks, blockStats);
           const pageBlockCount = countBlocksInTree(pageBlocksTree);
           blocksProcessed += pageBlockCount;
           blocksSkipped += blockStats.skipped;
@@ -515,18 +526,17 @@ async function syncFullDatabase() {
       );
     } else {
       // Show success message
-      logseq.App.showMsg('Full database sync completed successfully!', 'success');
+      const displayType = syncType === 'full' ? 'Full database' : 'Incremental';
+      logseq.App.showMsg(`${displayType} sync completed successfully!`, 'success');
     }
     
     // Log summary at info level - this is one of our few info logs
-    const syncType = lastSyncDate ? 'Incremental' : 'Full';
-    
     KnowledgeGraphAPI.log.info(`${syncType} sync completed`, {
       pages: pagesProcessed,
       blocks: blocksProcessed,
       pageErrors: summary.totalPageIssues || 0,
       blockErrors: summary.totalBlockIssues || 0,
-      syncType: syncType.toLowerCase()
+      syncType: syncType
     });
     
     // Process any queued timestamp updates before finishing sync
@@ -688,16 +698,42 @@ function collectBlockIds(blocks, idArray) {
 // SYNC STATUS MANAGEMENT
 //=============================================================================
 
-// Check if a full sync is needed by querying the backend
-async function checkIfFullSyncNeeded() {
-  // Use the global KnowledgeGraphAPI object's checkIfFullSyncNeeded function
-  return KnowledgeGraphAPI.checkIfFullSyncNeeded();
+// Check what type of sync is needed by querying the backend
+async function checkSyncStatus() {
+  try {
+    const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/sync/status'), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      KnowledgeGraphAPI.log.error('Failed to get sync status from backend');
+      return { needsSync: false };
+    }
+    
+    const status = await response.json();
+    
+    // Check sync needs in priority order
+    // Force flags override config settings
+    if (status.force_full_sync || (status.true_full_sync_needed && status.sync_config?.enable_full_sync)) {
+      return { needsSync: true, syncType: 'full' };
+    } else if (status.force_incremental_sync || status.incremental_sync_needed) {
+      return { needsSync: true, syncType: 'incremental' };
+    } else {
+      return { needsSync: false };
+    }
+  } catch (error) {
+    KnowledgeGraphAPI.log.error('Error checking sync status', {error: error.message});
+    return { needsSync: false };
+  }
 }
 
 // Update the sync timestamp on the backend
-async function updateSyncTimestamp() {
+async function updateSyncTimestamp(syncType = 'incremental') {
   // Use the global KnowledgeGraphAPI object's updateSyncTimestamp function
-  return KnowledgeGraphAPI.updateSyncTimestamp();
+  return KnowledgeGraphAPI.updateSyncTimestamp(syncType);
 }
 
 //=============================================================================
@@ -749,19 +785,36 @@ async function main() {
       const status = await response.json();
       
       // Display sync status
-      let statusMessage = 'Sync Status:\n';
+      let statusMessage = 'Sync Status:\n\n';
       
-      if (status.last_full_sync) {
-        const lastSync = new Date(status.last_full_sync);
+      // Incremental sync info
+      statusMessage += 'Incremental Sync:\n';
+      if (status.last_incremental_sync) {
+        const lastSync = new Date(status.last_incremental_sync);
         statusMessage += `- Last sync: ${lastSync.toLocaleString()}\n`;
-        statusMessage += `- Hours since sync: ${status.hours_since_sync}\n`;
+        statusMessage += `- Hours since: ${status.hours_since_incremental?.toFixed(1) || 'N/A'}\n`;
       } else {
-        statusMessage += '- No previous sync detected\n';
+        statusMessage += '- No previous sync\n';
+      }
+      statusMessage += `- Needed: ${status.incremental_sync_needed ? 'Yes' : 'No'}\n\n`;
+      
+      // Full sync info
+      statusMessage += 'Full Database Sync:\n';
+      statusMessage += `- Enabled: ${status.sync_config?.enable_full_sync ? 'Yes' : 'No'}\n`;
+      if (status.sync_config?.enable_full_sync) {
+        if (status.last_true_full_sync) {
+          const lastSync = new Date(status.last_true_full_sync);
+          statusMessage += `- Last sync: ${lastSync.toLocaleString()}\n`;
+          statusMessage += `- Hours since: ${status.hours_since_full?.toFixed(1) || 'N/A'}\n`;
+        } else {
+          statusMessage += '- No previous sync\n';
+        }
+        statusMessage += `- Needed: ${status.true_full_sync_needed ? 'Yes' : 'No'}\n`;
       }
       
+      statusMessage += `\nGraph Stats:\n`;
       statusMessage += `- Nodes: ${status.node_count}\n`;
-      statusMessage += `- References: ${status.reference_count}\n`;
-      statusMessage += `- Full sync needed: ${status.full_sync_needed ? 'Yes' : 'No'}`;
+      statusMessage += `- References: ${status.edge_count}`;
       
       logseq.App.showMsg(statusMessage, 'info');
     } catch (error) {
@@ -800,17 +853,17 @@ async function main() {
     KnowledgeGraphAPI.log.error('Failed to send plugin initialization signal', {error: error.message});
   }
   
-  // Check if we need to do a full sync immediately
-  const needsFullSync = await checkIfFullSyncNeeded();
+  // Check if we need to do any sync immediately
+  const syncStatus = await checkSyncStatus();
   
-  if (needsFullSync) {
-    const success = await syncFullDatabase();
+  if (syncStatus.needsSync) {
+    const success = await syncDatabase(syncStatus.syncType);
     
     if (success) {
-      await updateSyncTimestamp();
-      // Success message already shown by syncFullDatabase
+      await updateSyncTimestamp(syncStatus.syncType);
+      // Success message already shown by syncDatabase
     } else {
-      // Error message already shown by syncFullDatabase
+      // Error message already shown by syncDatabase
     }
     
     // Signal sync completion regardless of success/failure

@@ -176,39 +176,77 @@ pub async fn root() -> &'static str {
 pub async fn get_sync_status(
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
-    let mut status = state.graph_manager.lock().unwrap().get_sync_status();
+    let graph_manager = state.graph_manager.lock().unwrap();
+    let mut status = graph_manager.get_sync_status(&state.config.sync);
+    drop(graph_manager);
     
-    // Add force_full_sync flag to the response
+    // Add force sync flags to the response
     if let Some(obj) = status.as_object_mut() {
-        // Override full_sync_needed if force flag is set
+        // Override sync needed flags if force flags are set
         if state.force_full_sync {
             obj.insert("full_sync_needed".to_string(), serde_json::Value::Bool(true));
+            obj.insert("incremental_sync_needed".to_string(), serde_json::Value::Bool(true));
+            obj.insert("true_full_sync_needed".to_string(), serde_json::Value::Bool(true));
             obj.insert("force_full_sync".to_string(), serde_json::Value::Bool(true));
+        } else if state.force_incremental_sync {
+            obj.insert("full_sync_needed".to_string(), serde_json::Value::Bool(true));
+            obj.insert("incremental_sync_needed".to_string(), serde_json::Value::Bool(true));
+            obj.insert("force_incremental_sync".to_string(), serde_json::Value::Bool(true));
         }
     }
     
     Json(status)
 }
 
+// Request body for sync timestamp update
+#[derive(Debug, Deserialize)]
+pub struct UpdateSyncRequest {
+    #[serde(default = "default_sync_type")]
+    pub sync_type: String,
+}
+
+fn default_sync_type() -> String {
+    "incremental".to_string()
+}
+
 // Endpoint to update sync timestamp after a full sync
 pub async fn update_sync_timestamp(
     State(state): State<Arc<AppState>>,
+    Json(request): Json<UpdateSyncRequest>,
 ) -> Json<ApiResponse> {
     let mut graph_manager = state.graph_manager.lock().unwrap();
     
-    match graph_manager.update_full_sync_timestamp() {
+    let result = match request.sync_type.as_str() {
+        "incremental" => {
+            debug!("Updating incremental sync timestamp");
+            graph_manager.update_incremental_sync_timestamp()
+        },
+        "full" => {
+            debug!("Updating full sync timestamp");
+            graph_manager.update_full_sync_timestamp()
+        },
+        _ => {
+            error!("Invalid sync type: {}", request.sync_type);
+            return Json(ApiResponse {
+                success: false,
+                message: format!("Invalid sync type: {}. Expected 'incremental' or 'full'", request.sync_type),
+            });
+        }
+    };
+    
+    match result {
         Ok(()) => {
-            debug!("Sync timestamp updated successfully");
+            debug!("{} sync timestamp updated successfully", request.sync_type);
             Json(ApiResponse {
                 success: true,
-                message: "Sync timestamp updated successfully".to_string(),
+                message: format!("{} sync timestamp updated successfully", request.sync_type),
             })
         },
         Err(e) => {
-            error!("Error updating sync timestamp: {e:?}");
+            error!("Error updating {} sync timestamp: {e:?}", request.sync_type);
             Json(ApiResponse {
                 success: false,
-                message: format!("Error updating sync timestamp: {e:?}"),
+                message: format!("Error updating {} sync timestamp: {e:?}", request.sync_type),
             })
         }
     }

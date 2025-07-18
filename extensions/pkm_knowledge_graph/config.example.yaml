@@ -22,3 +22,17 @@ development:
   # Default duration in seconds for development runs (when --duration is not specified)
   # Set to null to disable auto-duration behavior
   default_duration: 3
+
+# Sync configuration
+sync:
+  # Hours between incremental syncs (default: 2)
+  # Incremental sync only processes blocks/pages modified since last sync
+  incremental_interval_hours: 2
+  
+  # Hours between full database syncs (default: 168 = 7 days)
+  # Full sync re-processes the entire PKM, catching external file modifications
+  full_interval_hours: 168
+  
+  # Whether to perform full database syncs at all (default: false)
+  # Most users don't need this - only enable if you modify Logseq files externally
+  enable_full_sync: false

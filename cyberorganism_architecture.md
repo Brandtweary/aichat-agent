@@ -4,20 +4,33 @@ A guide to core modules, system design, and data flow for developers.
 
 ## Recent Updates
 
-### Incremental Sync and Deletion Detection (Latest)
-**Status**: Major sync performance improvements and data integrity features
-- **Incremental Sync**: Added timestamp tracking to only sync blocks/pages modified since last full sync
-  - Reduces sync payload by ~95% in typical usage
-  - Backend tracks last_full_sync timestamp, JavaScript filters based on updated dates
-- **Deletion Detection**: Implemented archival system for removed nodes
-  - After full sync, JavaScript sends all PKM IDs to verify endpoint
+### 3-Tiered Sync Architecture (Latest)
+**Status**: Implemented flexible sync system with configurable intervals and clear separation of sync types
+- **3-Tiered Sync System**:
+  1. **Real-time Change Tracking**: Always on, syncs individual changes immediately
+  2. **Incremental Database Sync**: Default every 2 hours, syncs only modified content
+  3. **Full Database Sync**: Default every 7 days (disabled by default), re-indexes entire PKM
+- **Configuration System**: New sync configuration in `config.yaml`:
+  - `incremental_interval_hours`: Hours between incremental syncs (default: 2)
+  - `full_interval_hours`: Hours between full database syncs (default: 168/7 days)
+  - `enable_full_sync`: Whether to perform full syncs at all (default: false)
+- **Timestamp Tracking**:
+  - Separate timestamps for incremental (`last_incremental_sync`) and full (`last_full_sync`) syncs
+  - Pages use built-in `updatedAt` field for incremental sync filtering
+  - Blocks use custom `cyberorganism-updated-ms` property managed by the plugin
+- **CLI Enhancements**:
+  - `--force-incremental-sync`: Force an incremental sync on next plugin connection
+  - `--force-full-sync`: Force a full database sync on next plugin connection
+- **Deletion Detection**: After syncs, JavaScript sends all PKM IDs to verify endpoint
   - Deleted nodes are archived to `archived_nodes/archive_YYYYMMDD_HHMMSS.json`
   - Preserves full node data, properties, and edge relationships
-- **CLI Enhancement**: Added `--force-full-sync` flag for testing and recovery scenarios
-- **Bug Fixes**:
-  - Fixed real-time change detection regression (Logseq onChanged API returns object, not array)
-  - Fixed page name normalization (Logseq uses lowercase, causing virtual page archival)
-  - Added normalized_name field to PKMPageData for consistent lookups
+- **API Updates**:
+  - `/sync/status` now returns both sync type statuses and configuration
+  - `PATCH /sync` accepts sync type parameter to update correct timestamp
+- **JavaScript Updates**:
+  - Renamed `syncFullDatabase()` to `syncDatabase(syncType)` for clarity
+  - Added `checkSyncStatus()` to determine which sync type is needed
+  - Fixed force flags to properly override configuration settings
 
 ### Backend Module Refactoring Complete
 **Status**: Major refactoring to improve code organization and maintainability
@@ -63,8 +76,7 @@ cyberorganism/
 │   │   │   └── Cargo.toml
 │   │   └── package.json
 │   └── logseq_dummy_graph/        # Test data
-└── notes/                         # Architecture documentation
-    └── PKM_Knowledge_Graph_TODO.md
+└── notes/                         # Additional documentation
 ```
 
 ## Core Components
@@ -77,8 +89,11 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
 **JavaScript Frontend (Logseq Plugin)**
 - **index.js**: Orchestrates plugin lifecycle, handles Logseq events, manages sync logic
   - Sends message types to backend: 'block', 'blocks', 'page', 'pages', 'plugin_initialized', 'sync_complete'
-  - Monitors DB changes via `logseq.DB.onChanged` and batches updates
-  - Handles full database sync every 2 hours with incremental filtering
+  - Monitors DB changes via `logseq.DB.onChanged` and batches updates (real-time sync)
+  - Implements 3-tiered sync system with configurable intervals:
+    - Real-time: Individual changes synced immediately
+    - Incremental: Every 2 hours (default), syncs only modified content
+    - Full: Every 7 days (default, disabled), re-indexes entire PKM
   - Filters pages by built-in `updatedAt` field, blocks by custom `cyberorganism-updated-ms` property
   - Manages custom timestamp properties on blocks since Logseq lacks reliable block timestamps
   - Collects all PKM IDs and sends to /sync/verify for deletion detection
@@ -102,7 +117,8 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
 - **config.rs**: Configuration management module
   - Loads configuration from `config.yaml` with fallback to defaults
   - Validates JavaScript plugin configuration matches Rust settings
-  - Provides Config, BackendConfig, LogseqConfig, DevelopmentConfig structs
+  - Provides Config, BackendConfig, LogseqConfig, DevelopmentConfig, SyncConfig structs
+  - Uses `CARGO_MANIFEST_DIR` to reliably locate api.js for validation
 - **logging.rs**: Custom logging configuration
   - Implements ConditionalLocationFormatter for cleaner log output
   - Shows file:line information only for ERROR and WARN levels
@@ -141,17 +157,24 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
   
   - `GET /sync/status` - Sync status and graph statistics
     - Returns: JSON object with:
+      - `last_incremental_sync`: Unix timestamp in milliseconds or null
+      - `last_incremental_sync_iso`: ISO timestamp string or null
+      - `hours_since_incremental`: Float hours since last incremental sync
+      - `incremental_sync_needed`: Boolean (based on config interval)
       - `last_full_sync`: Unix timestamp in milliseconds or null
       - `last_full_sync_iso`: ISO timestamp string or null
-      - `hours_since_sync`: Float hours since last sync
-      - `full_sync_needed`: Boolean (true if >2 hours, never synced, or --force-full-sync flag set)
+      - `hours_since_full`: Float hours since last full sync
+      - `true_full_sync_needed`: Boolean (based on config interval)
+      - `force_incremental_sync`: Boolean (true if --force-incremental-sync flag was used)
       - `force_full_sync`: Boolean (true if --force-full-sync flag was used)
+      - `sync_config`: Object with sync configuration (intervals and enable_full_sync)
       - `node_count`: Total nodes in graph
-      - `reference_count`: Total edges in graph
+      - `edge_count`: Total edges in graph
   
   - `PATCH /sync` - Update sync timestamp
-    - Called after successful full database sync
-    - Updates internal timestamp used for sync scheduling
+    - Called after successful sync completion
+    - Accepts: JSON object with optional `sync_type` field ("incremental" or "full", defaults to "incremental")
+    - Updates internal timestamp for the specified sync type
     - Returns: `ApiResponse` with success status
   
   - `POST /sync/verify` - Verify PKM IDs and archive deleted nodes
@@ -175,10 +198,12 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
   - Node types: Page and Block with full metadata (content, properties, timestamps)
   - Edge types: PageRef, BlockRef, Tag, Property, ParentChild, PageToBlock
   - HashMap for O(1) PKM ID → NodeIndex lookups (uses normalized lowercase names for pages)
+  - Separate sync timestamps: `last_incremental_sync` and `last_full_sync`
+  - Sync status methods: `is_incremental_sync_needed()` and `is_true_full_sync_needed()`
   - Automatic saves: time-based (5 min) or operation-based (10 ops), disabled during batches
   - Graph persistence to `knowledge_graph.json` with full serialization
   - Node archival: Deleted nodes saved to `archived_nodes/archive_YYYYMMDD_HHMMSS.json`
-  - Deletion detection via `verify_and_archive_missing_nodes()` after full sync
+  - Deletion detection via `verify_and_archive_missing_nodes()` after sync
 - **pkm_data.rs**: Shared data structures and validation logic
 - **Logging**: Uses tracing crate with conditional formatter (file:line only for WARN/ERROR)
 
@@ -210,12 +235,20 @@ The backend server automatically manages its lifecycle:
 Logseq DB Change → onChanged Event → Validate Data → Batch Queue → HTTP POST → Backend Processing
 ```
 
-### Full Sync (Every 2 Hours)
+### Incremental Sync (Every 2 Hours by default)
 ```
-Check Timestamps → Query All Pages/Blocks → Filter by Modified Date (Incremental) → Process in Batches → Send PKM IDs for Deletion Detection → Update Backend → Update Sync Timestamp
+Check Last Incremental Sync → Query All Pages/Blocks → Filter by Modified Date → Process in Batches → Send PKM IDs for Deletion Detection → Update Backend → Update Incremental Sync Timestamp
 ```
-- **Incremental Sync**: Pages use built-in `updatedAt` field; blocks use custom `cyberorganism-updated-ms` property
-- **Deletion Detection**: After sync, sends all current PKM IDs to verify endpoint
+- **Timestamp Filtering**: Pages use built-in `updatedAt` field; blocks use custom `cyberorganism-updated-ms` property
+- **Efficient**: Only processes content modified since last incremental sync
+
+### Full Database Sync (Every 7 Days by default, disabled)
+```
+Check Last Full Sync → Query All Pages/Blocks → Process ALL Content (No Filtering) → Send PKM IDs for Deletion Detection → Update Backend → Update Full Sync Timestamp
+```
+- **Complete Re-index**: Processes entire PKM without timestamp filtering
+- **Use Cases**: Recovers from external file modifications, ensures data integrity
+- **Deletion Detection**: After both sync types, sends all current PKM IDs to verify endpoint
 - **Archival**: Deleted nodes are preserved in timestamped JSON files
 
 ### Graph Structure
@@ -240,9 +273,14 @@ Check Timestamps → Query All Pages/Blocks → Filter by Modified Date (Increme
 - API keys
 
 **PKM Extension Config** (`extensions/pkm_knowledge_graph/config.yaml`):
-- Port configuration for the backend server
+- Backend server configuration (port, max port attempts)
+- Sync intervals and configuration:
+  - `incremental_interval_hours`: Hours between incremental syncs (default: 2)
+  - `full_interval_hours`: Hours between full database syncs (default: 168/7 days)
+  - `enable_full_sync`: Whether to perform full syncs (default: false)
+- Logseq auto-launch settings
+- Development duration for auto-shutdown
 - Server always binds to localhost for security
-- See config.yaml file for current options
 
 ## Testing
 
@@ -250,7 +288,8 @@ Check Timestamps → Query All Pages/Blocks → Filter by Modified Date (Increme
 - **Rust Backend**: `cargo test` (in extensions/pkm_knowledge_graph/backend/) - Unit tests for core modules (quiet by default)
 - **Rust Core**: `cargo test` (in cyberorganism root) - Unit tests for AIChat core functionality
 - **Development**: `RUST_LOG=debug cargo run` - Run backend server with default 3-second duration for testing
-- **Force Full Sync**: `cargo run -- --force-full-sync` - Override sync status to force a full sync on next plugin connection
+- **Force Incremental Sync**: `cargo run -- --force-incremental-sync` - Override sync status to force an incremental sync on next plugin connection
+- **Force Full Sync**: `cargo run -- --force-full-sync` - Override sync status to force a full database sync on next plugin connection
 
 ## Development Features
 

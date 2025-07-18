@@ -43,6 +43,14 @@
  * Useful for automated testing and development workflows. Production
  * deployments should leave this as None for indefinite operation.
  * 
+ * ### SyncConfig
+ * - `incremental_interval_hours`: Hours between incremental syncs (default: 2)
+ * - `full_interval_hours`: Hours between full database syncs (default: 168/7 days)
+ * - `enable_full_sync`: Whether to perform full syncs at all (default: false)
+ * 
+ * Incremental sync only processes blocks/pages modified since last sync.
+ * Full sync re-processes the entire PKM, catching external file modifications.
+ * 
  * ## JavaScript Plugin Validation
  * 
  * The `validate_js_plugin_config()` function ensures the JavaScript plugin's
@@ -81,22 +89,24 @@ use tracing::{debug, error, warn, info};
 use std::error::Error;
 
 // Configuration structure
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub backend: BackendConfig,
     #[serde(default)]
     pub logseq: LogseqConfig,
     #[serde(default)]
     pub development: DevelopmentConfig,
+    #[serde(default)]
+    pub sync: SyncConfig,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct BackendConfig {
     pub port: u16,
     pub max_port_attempts: u16,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LogseqConfig {
     #[serde(default = "default_auto_launch")]
     pub auto_launch: bool,
@@ -104,13 +114,35 @@ pub struct LogseqConfig {
     pub executable_path: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct DevelopmentConfig {
     #[serde(default)]
     pub default_duration: Option<u64>,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct SyncConfig {
+    #[serde(default = "default_incremental_interval_hours")]
+    pub incremental_interval_hours: u64,
+    #[serde(default = "default_full_interval_hours")]
+    pub full_interval_hours: u64,
+    #[serde(default = "default_enable_full_sync")]
+    pub enable_full_sync: bool,
+}
+
 fn default_auto_launch() -> bool {
+    false
+}
+
+fn default_incremental_interval_hours() -> u64 {
+    2
+}
+
+fn default_full_interval_hours() -> u64 {
+    168 // 7 days
+}
+
+fn default_enable_full_sync() -> bool {
     false
 }
 
@@ -129,6 +161,7 @@ impl Default for Config {
             development: DevelopmentConfig {
                 default_duration: None,
             },
+            sync: SyncConfig::default(),
         }
     }
 }
@@ -146,6 +179,16 @@ impl Default for DevelopmentConfig {
     fn default() -> Self {
         DevelopmentConfig {
             default_duration: None,
+        }
+    }
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        SyncConfig {
+            incremental_interval_hours: default_incremental_interval_hours(),
+            full_interval_hours: default_full_interval_hours(),
+            enable_full_sync: default_enable_full_sync(),
         }
     }
 }
@@ -206,13 +249,17 @@ pub fn load_config() -> Config {
 
 // Validate that JavaScript plugin configuration matches Rust configuration
 pub fn validate_js_plugin_config(config: &Config) -> Result<(), Box<dyn Error>> {
-    // Path to the JavaScript API file
-    let api_js_path = PathBuf::from("../api.js");
+    // api.js is always at a fixed location relative to this source file
+    // From backend/src/config.rs to api.js is ../../api.js
+    let source_file = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let api_js_path = source_file.parent()
+        .ok_or("Could not get parent of backend directory")?
+        .join("api.js");
     
     if !api_js_path.exists() {
-        warn!("JavaScript API file not found at ../api.js - skipping config validation");
+        warn!("JavaScript API file not found at {:?} - skipping config validation", api_js_path);
         return Ok(());
-    }
+    };
     
     let api_js_content = fs::read_to_string(&api_js_path)?;
     
@@ -288,6 +335,9 @@ mod tests {
         assert_eq!(config.logseq.auto_launch, false);
         assert_eq!(config.logseq.executable_path, None);
         assert_eq!(config.development.default_duration, None);
+        assert_eq!(config.sync.incremental_interval_hours, 2);
+        assert_eq!(config.sync.full_interval_hours, 168);
+        assert_eq!(config.sync.enable_full_sync, false);
     }
 
     #[test]
@@ -306,5 +356,20 @@ mod tests {
     fn test_development_config_default() {
         let config = DevelopmentConfig::default();
         assert_eq!(config.default_duration, None);
+    }
+
+    #[test]
+    fn test_sync_config_default() {
+        let config = SyncConfig::default();
+        assert_eq!(config.incremental_interval_hours, 2);
+        assert_eq!(config.full_interval_hours, 168);
+        assert_eq!(config.enable_full_sync, false);
+    }
+
+    #[test]
+    fn test_sync_default_functions() {
+        assert_eq!(default_incremental_interval_hours(), 2);
+        assert_eq!(default_full_interval_hours(), 168);
+        assert_eq!(default_enable_full_sync(), false);
     }
 }

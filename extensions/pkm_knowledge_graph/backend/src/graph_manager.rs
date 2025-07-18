@@ -247,7 +247,10 @@ pub struct GraphManager {
     /// Mapping from PKM IDs to graph node indices
     pkm_to_node: NodeMap,
     
-    /// When the last full sync was performed (Unix timestamp in milliseconds)
+    /// When the last incremental sync was performed (Unix timestamp in milliseconds)
+    last_incremental_sync: Option<i64>,
+    
+    /// When the last full database sync was performed (Unix timestamp in milliseconds)
     last_full_sync: Option<i64>,
     
     /// When the graph was last saved (for time-based saves)
@@ -272,6 +275,7 @@ impl GraphManager {
             data_dir,
             graph: StableGraph::new(),
             pkm_to_node: HashMap::new(),
+            last_incremental_sync: None,
             last_full_sync: None,
             last_save_time: Utc::now(),
             operations_since_save: 0,
@@ -317,12 +321,14 @@ impl GraphManager {
         struct SerializedGraph {
             graph: KnowledgeGraph,
             pkm_to_node: NodeMap,
+            last_incremental_sync: Option<i64>,
             last_full_sync: Option<i64>,
         }
         
         let serialized: SerializedGraph = serde_json::from_str(&contents)?;
         self.graph = serialized.graph;
         self.pkm_to_node = serialized.pkm_to_node;
+        self.last_incremental_sync = serialized.last_incremental_sync;
         self.last_full_sync = serialized.last_full_sync;
         
         info!("Loaded graph with {} nodes and {} edges", 
@@ -339,12 +345,14 @@ impl GraphManager {
         struct SerializedGraph<'a> {
             graph: &'a KnowledgeGraph,
             pkm_to_node: &'a NodeMap,
+            last_incremental_sync: Option<i64>,
             last_full_sync: Option<i64>,
         }
         
         let serialized = SerializedGraph {
             graph: &self.graph,
             pkm_to_node: &self.pkm_to_node,
+            last_incremental_sync: self.last_incremental_sync,
             last_full_sync: self.last_full_sync,
         };
         
@@ -409,13 +417,25 @@ impl GraphManager {
     }
     
     /// Get the current sync status
-    pub fn get_sync_status(&self) -> serde_json::Value {
+    pub fn get_sync_status(&self, config: &crate::config::SyncConfig) -> serde_json::Value {
         let now = Utc::now().timestamp_millis();
-        let hours_since_sync = self.last_full_sync.map(|last_sync| {
-            (now - last_sync) / (1000 * 60 * 60)
+        
+        // Calculate hours since each sync type
+        let hours_since_incremental = self.last_incremental_sync.map(|last_sync| {
+            (now - last_sync) as f64 / (1000.0 * 60.0 * 60.0)
         });
         
-        // Convert Unix timestamp to ISO string for JavaScript consumption
+        let hours_since_full = self.last_full_sync.map(|last_sync| {
+            (now - last_sync) as f64 / (1000.0 * 60.0 * 60.0)
+        });
+        
+        // Convert Unix timestamps to ISO strings for JavaScript consumption
+        let last_incremental_sync_iso = self.last_incremental_sync.map(|timestamp| {
+            DateTime::<Utc>::from_timestamp_millis(timestamp)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| "invalid".to_string())
+        });
+        
         let last_full_sync_iso = self.last_full_sync.map(|timestamp| {
             DateTime::<Utc>::from_timestamp_millis(timestamp)
                 .map(|dt| dt.to_rfc3339())
@@ -423,30 +443,80 @@ impl GraphManager {
         });
         
         serde_json::json!({
-            "last_full_sync": self.last_full_sync,
-            "last_full_sync_iso": last_full_sync_iso,
-            "hours_since_sync": hours_since_sync,
-            "full_sync_needed": self.is_full_sync_needed(),
+            // Legacy fields for backwards compatibility
+            "last_full_sync": self.last_incremental_sync,
+            "last_full_sync_iso": last_incremental_sync_iso.clone(),
+            "hours_since_sync": hours_since_incremental,
+            "full_sync_needed": self.is_incremental_sync_needed(config.incremental_interval_hours),
+            
+            // New detailed fields
+            "last_incremental_sync": self.last_incremental_sync,
+            "last_incremental_sync_iso": last_incremental_sync_iso,
+            "hours_since_incremental": hours_since_incremental,
+            "incremental_sync_needed": self.is_incremental_sync_needed(config.incremental_interval_hours),
+            
+            "last_true_full_sync": self.last_full_sync,
+            "last_true_full_sync_iso": last_full_sync_iso,
+            "hours_since_full": hours_since_full,
+            "true_full_sync_needed": self.is_true_full_sync_needed(config),
+            
+            // Configuration info
+            "sync_config": {
+                "incremental_interval_hours": config.incremental_interval_hours,
+                "full_interval_hours": config.full_interval_hours,
+                "enable_full_sync": config.enable_full_sync,
+            },
+            
+            // Graph stats
             "node_count": self.graph.node_count(),
             "edge_count": self.graph.edge_count(),
         })
     }
     
-    /// Check if a full sync is needed based on time since last sync
-    pub fn is_full_sync_needed(&self) -> bool {
+    /// Check if an incremental sync is needed based on time since last sync
+    pub fn is_incremental_sync_needed(&self, interval_hours: u64) -> bool {
         let now = Utc::now().timestamp_millis();
         
-        self.last_full_sync.map_or_else(|| {
-            info!("Full sync needed: No previous sync found");
+        self.last_incremental_sync.map_or_else(|| {
+            info!("Incremental sync needed: No previous sync found");
             true
         }, |last_sync| {
             let hours_since_sync = (now - last_sync) / (1000 * 60 * 60);
-            let full_sync_needed = hours_since_sync > 2;
+            let sync_needed = hours_since_sync > interval_hours as i64;
             
-            debug!("Last sync: {last_sync}, Hours since sync: {hours_since_sync}, Full sync needed: {full_sync_needed}");
+            debug!("Last incremental sync: {last_sync}, Hours since sync: {hours_since_sync}, Incremental sync needed: {sync_needed}");
             
-            full_sync_needed
+            sync_needed
         })
+    }
+    
+    /// Check if a true full sync is needed (re-sync entire PKM)
+    pub fn is_true_full_sync_needed(&self, config: &crate::config::SyncConfig) -> bool {
+        // Full sync disabled by configuration
+        if !config.enable_full_sync {
+            return false;
+        }
+        
+        let now = Utc::now().timestamp_millis();
+        
+        self.last_full_sync.map_or_else(|| {
+            info!("True full sync needed: No previous full sync found");
+            true
+        }, |last_sync| {
+            let hours_since_sync = (now - last_sync) / (1000 * 60 * 60);
+            let sync_needed = hours_since_sync > config.full_interval_hours as i64;
+            
+            debug!("Last full sync: {last_sync}, Hours since sync: {hours_since_sync}, True full sync needed: {sync_needed}");
+            
+            sync_needed
+        })
+    }
+    
+    /// Update the last incremental sync timestamp
+    pub fn update_incremental_sync_timestamp(&mut self) -> GraphResult<()> {
+        let now = Utc::now().timestamp_millis();
+        self.last_incremental_sync = Some(now);
+        self.save_graph()
     }
     
     /// Update the last full sync timestamp
@@ -1146,10 +1216,12 @@ mod tests {
     #[test]
     fn test_sync_status() {
         let (mut manager, _temp_dir) = create_test_manager();
+        let config = crate::config::SyncConfig::default();
         
         // Initially no sync
-        let status = manager.get_sync_status();
-        assert_eq!(status["full_sync_needed"], true);
+        let status = manager.get_sync_status(&config);
+        assert_eq!(status["incremental_sync_needed"], true);
+        assert_eq!(status["true_full_sync_needed"], false); // Disabled by default
         assert_eq!(status["node_count"], 0);
         assert_eq!(status["edge_count"], 0);
         
@@ -1157,13 +1229,24 @@ mod tests {
         let page = create_test_page("TestPage");
         manager.create_or_update_node_from_pkm_page(&page).unwrap();
         
-        // Update sync timestamp
-        manager.update_full_sync_timestamp().unwrap();
+        // Update incremental sync timestamp
+        manager.update_incremental_sync_timestamp().unwrap();
         
-        let status = manager.get_sync_status();
-        assert_eq!(status["full_sync_needed"], false);
+        let status = manager.get_sync_status(&config);
+        assert_eq!(status["incremental_sync_needed"], false);
         assert_eq!(status["node_count"], 1);
-        assert!(status["last_full_sync"].as_i64().is_some());
+        assert!(status["last_incremental_sync"].as_i64().is_some());
+        
+        // Test with full sync enabled
+        let mut full_config = config;
+        full_config.enable_full_sync = true;
+        let status = manager.get_sync_status(&full_config);
+        assert_eq!(status["true_full_sync_needed"], true); // No previous full sync
+        
+        // Update full sync timestamp
+        manager.update_full_sync_timestamp().unwrap();
+        let status = manager.get_sync_status(&full_config);
+        assert_eq!(status["true_full_sync_needed"], false);
     }
     
     #[test]

@@ -8,6 +8,12 @@
  * This file exposes window.KnowledgeGraphAPI - do not change this pattern.
  * Breaking changes here will cause silent failures in Logseq.
  * 
+ * LOGGING STANDARD:
+ * - console.error() and console.warn() are acceptable for errors/warnings
+ * - DO NOT use console.log() for info/debug logging - we avoid UI spam
+ * - Use the HTTP logging API (KnowledgeGraphAPI.log.*) from other modules
+ * - This module can't use HTTP logging for its own errors (chicken-egg problem)
+ * 
  * This module provides a comprehensive API for all communication between the Logseq frontend
  * and the Rust backend server. It handles constructing API endpoints, sending data, checking
  * server availability, and managing sync operations.
@@ -39,9 +45,11 @@
  */
 
 // Create a global API object to hold all the functions
-console.log('Loading KnowledgeGraphAPI module...');
 window.KnowledgeGraphAPI = {};
-console.log('KnowledgeGraphAPI module loaded successfully.');
+
+// TODO: Implement localStorage logging for errors/warnings in this module
+// Since this is the logging API itself, we can't use HTTP logging for internal errors.
+// Consider writing errors/warnings to localStorage with timestamps for debugging.
 
 // Cache for server info
 let serverInfoCache = null;
@@ -82,7 +90,6 @@ async function discoverServerPort() {
         });
         
         if (response.ok) {
-          console.log(`Found backend server on port ${port}`);
           // Server is responding, cache this port info
           const serverInfo = {
             host: '127.0.0.1',
@@ -133,7 +140,6 @@ window.KnowledgeGraphAPI.sendToBackend = async function(data) {
   const backendUrl = await window.KnowledgeGraphAPI.getBackendUrl('/data');
   
   try {
-    console.log(`Sending data to backend: ${backendUrl}`);
     const response = await fetch(backendUrl, {
       method: 'POST',
       headers: {
@@ -143,7 +149,6 @@ window.KnowledgeGraphAPI.sendToBackend = async function(data) {
     });
 
     if (response.ok) {
-      console.log('Data sent successfully to backend.');
       return true;
     } else {
       console.error(`Backend server responded with status: ${response.status}`);
@@ -189,7 +194,12 @@ window.KnowledgeGraphAPI.log = {
     } catch (error) {
       // Fallback to console if backend is unavailable
       console.error('Failed to send log to backend:', error);
-      console.log(`[${level}] ${message}`, details);
+      // Still output the original log to console as fallback
+      if (level === 'error') {
+        console.error(`[${level}] ${message}`, details);
+      } else if (level === 'warn') {
+        console.warn(`[${level}] ${message}`, details);
+      }
       return false;
     }
   },
@@ -223,7 +233,6 @@ window.KnowledgeGraphAPI.log = {
    * @param {string} source - Optional source identifier
    */
   async info(message, details = null, source = null) {
-    console.log(message, details); // Also log to console
     return this.send('info', message, details, source);
   },
   
@@ -234,7 +243,6 @@ window.KnowledgeGraphAPI.log = {
    * @param {string} source - Optional source identifier
    */
   async debug(message, details = null, source = null) {
-    console.log(`[DEBUG] ${message}`, details); // Also log to console
     return this.send('debug', message, details, source);
   },
   
@@ -245,7 +253,6 @@ window.KnowledgeGraphAPI.log = {
    * @param {string} source - Optional source identifier
    */
   async trace(message, details = null, source = null) {
-    console.log(`[TRACE] ${message}`, details); // Also log to console
     return this.send('trace', message, details, source);
   }
 };
@@ -255,7 +262,6 @@ window.KnowledgeGraphAPI.log = {
  * @returns {Promise<boolean>} - Whether the backend server is available
  */
 window.KnowledgeGraphAPI.checkBackendAvailability = async function() {
-  console.log('Checking backend server availability...');
   try {
     const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/'), {
       method: 'GET',
@@ -281,14 +287,10 @@ window.KnowledgeGraphAPI.checkBackendAvailabilityWithRetry = async function(maxR
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const isAvailable = await this.checkBackendAvailability();
     if (isAvailable) {
-      if (attempt > 0) {
-        console.log(`Backend available after ${attempt} retry attempts`);
-      }
       return true;
     }
     
     if (attempt < maxRetries) {
-      console.log(`Backend not available, retrying in ${retryDelayMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
       await new Promise(resolve => setTimeout(resolve, retryDelayMs));
     }
   }
@@ -302,12 +304,10 @@ window.KnowledgeGraphAPI.checkBackendAvailabilityWithRetry = async function(maxR
  * @returns {Promise<boolean>} - Whether a full sync is needed
  */
 window.KnowledgeGraphAPI.checkIfFullSyncNeeded = async function() {
-  console.log('Checking if full sync is needed...');
   try {
     // Check if backend is available
     const backendAvailable = await window.KnowledgeGraphAPI.checkBackendAvailability();
     if (!backendAvailable) {
-      console.log('Backend not available, skipping full sync check');
       return false;
     }
     
@@ -325,7 +325,6 @@ window.KnowledgeGraphAPI.checkIfFullSyncNeeded = async function() {
     }
     
     const status = await response.json();
-    console.log('Sync status from backend:', status);
     
     // Return whether a full sync is needed
     return status.full_sync_needed === true;
@@ -341,29 +340,32 @@ window.KnowledgeGraphAPI.checkIfFullSyncNeeded = async function() {
 
 /**
  * Update the sync timestamp on the backend
+ * @param {string} syncType - The type of sync ('incremental' or 'full')
  * @returns {Promise<boolean>} - Whether the update was successful
  */
-window.KnowledgeGraphAPI.updateSyncTimestamp = async function() {
+window.KnowledgeGraphAPI.updateSyncTimestamp = async function(syncType = 'incremental') {
   try {
     const response = await fetch(await window.KnowledgeGraphAPI.getBackendUrl('/sync'), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        sync_type: syncType
+      })
     });
     
     if (!response.ok) {
-      console.error('Error updating sync timestamp on backend');
+      console.error(`Error updating ${syncType} sync timestamp on backend`);
       return false;
     }
     
     const result = await response.json();
-    console.log('Sync timestamp updated:', result);
     
     return result.success === true;
   } catch (error) {
-    console.error('Error updating sync timestamp:', error);
-    await window.KnowledgeGraphAPI.log.error('Error updating sync timestamp', { 
+    console.error(`Error updating ${syncType} sync timestamp:`, error);
+    await window.KnowledgeGraphAPI.log.error(`Error updating ${syncType} sync timestamp`, { 
       error: error.message,
       stack: error.stack
     });
@@ -380,8 +382,6 @@ window.KnowledgeGraphAPI.updateSyncTimestamp = async function() {
  */
 window.KnowledgeGraphAPI.sendBatchToBackend = async function(type, batch, graphName, source = 'Full Sync') {
   if (batch.length === 0) return;
-  
-  console.log(`Sending batch of ${batch.length} ${type}s to backend`);
   
   try {
     await window.KnowledgeGraphAPI.sendToBackend({

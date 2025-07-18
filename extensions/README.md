@@ -77,7 +77,8 @@ RUST_LOG=info cargo run
 
 Once set up, the system automatically:
 - **Real-time sync**: Changes to pages/blocks sync immediately to the knowledge graph
-- **Full sync**: Every 2 hours, performs a complete sync to catch any missed changes  
+- **Incremental sync**: Every 2 hours, syncs only modified content to catch any missed changes
+- **Full sync**: Weekly re-indexing of entire PKM (optional, disabled by default)
 - **Reference tracking**: Captures page links `[[Page Name]]`, block references `((block-id))`, tags `#tag`, and properties `key:: value`
 - **Graph storage**: Maintains a queryable graph structure of your entire knowledge base
 
@@ -116,6 +117,40 @@ The extension uses its own configuration file separate from the main AIChat conf
 
 **Development Settings:**
 - `development.default_duration: 3` - Auto-exit timer for development (set to null for production)
+
+**Sync Configuration:**
+- `sync.incremental_interval_hours: 2` - Hours between incremental syncs (default: 2)
+- `sync.full_interval_hours: 168` - Hours between full database syncs (default: 168/7 days)
+- `sync.enable_full_sync: false` - Whether to perform full database syncs (default: false)
+
+**Understanding the 3-Tiered Sync System:**
+
+The PKM Knowledge Graph uses a 3-tiered sync system with multiple layers of redundancy:
+
+1. **Real-time Sync** (Always on): Individual changes are synced immediately as you edit
+2. **Incremental Sync** (Every 2 hours): Catches any blocks added while the plugin wasn't loaded and provides backup for real-time sync
+3. **Full Database Sync** (Weekly, disabled by default): Re-indexes your entire PKM
+
+**When to Enable Full Database Sync:**
+
+The real-time and incremental sync layers handle virtually all normal use cases. Full database sync is only needed if you:
+
+- **Modify Logseq files directly** without opening the app (e.g., using a text editor)
+- **Use scripts or external tools** that modify your Logseq graph files
+- **Sync your graph via cloud services** where files might change outside of Logseq
+
+To enable full database sync:
+```yaml
+sync:
+  enable_full_sync: true
+  full_interval_hours: 168  # Weekly, adjust as needed
+```
+
+**Forcing Sync Operations:**
+
+You can manually trigger syncs using CLI flags:
+- `cargo run -- --force-incremental-sync` - Force an incremental sync on next plugin connection
+- `cargo run -- --force-full-sync` - Force a full database sync on next plugin connection
 
 **Logseq Auto-Launch Details:**
 
