@@ -4,24 +4,24 @@ A guide to core modules, system design, and data flow for developers.
 
 ## Recent Updates
 
-### JavaScript Plugin Modularization (Latest)
-**Status**: Refactored JavaScript plugin for improved maintainability and code quality
-- **Module Extraction**: Separated sync orchestration logic from main plugin file
-  - Created `sync.js` module containing all database synchronization functionality (~400 lines)
-  - Reduced `index.js` from 892 to 475 lines (47% reduction)
-  - Follows browser-compatible module pattern using global window objects
-- **Test Infrastructure**: Expanded Jest test coverage
-  - Added comprehensive tests for `sync.js` module (tree traversal, sync status logic)
-  - Configured ESLint for dead code detection across different environments
-  - All tests passing with proper mocking of browser and Logseq APIs
-- **Code Quality Improvements**:
-  - Removed deprecated functions (`sendDiagnosticInfo`, unused `checkBackendAvailability`)
-  - Eliminated slash command for sync status (command-line debugging preferred)
-  - ESLint configuration handles browser, Jest, and Node.js environments separately
-- **Module Structure**:
-  - `sync.js`: Contains `syncDatabase()`, `checkSyncStatus()`, `processBlocksRecursively()`, and tree utilities
-  - `index.js`: Retains plugin lifecycle, real-time sync handling, and event management
-  - Clear separation between scheduled sync operations and real-time change processing
+### Frontend/Backend Directory Restructuring (Latest)
+**Status**: Refactored PKM Knowledge Graph extension for cleaner architecture
+- **Directory Structure**: Separated frontend and backend into parallel directories
+  - Moved all plugin files to `frontend/` subdirectory
+  - Backend remains in `backend/` but now as a peer to frontend
+  - Enables future migration where `extensions/` becomes repository root
+- **Configuration Updates**:
+  - Backend `config.yaml` now properly located in backend directory
+  - Updated api.js validation path in config.rs to find frontend files
+  - Server info file remains backend-specific (not read by frontend due to Logseq sandbox)
+- **Plugin Enhancements**:
+  - Added `"title": "Cyberorganism"` to package.json for proper display name
+  - Plugin now shows as "Cyberorganism" instead of folder name in Logseq
+  - All relative paths within frontend remain unchanged
+- **Migration Preparation**:
+  - Moved `.gitignore` to extensions root with updated paths
+  - Documentation updated to reflect new structure
+  - All tests passing (34 backend, 45 frontend) with no warnings
 
 ## System Overview
 
@@ -39,22 +39,24 @@ cyberorganism/
 │   └── function/                  # Function calling framework
 ├── extensions/                    # Cyberorganism-specific features
 │   ├── pkm_knowledge_graph/       # Knowledge graph integration
-│   │   ├── index.js               # Logseq plugin entry point (orchestration)
-│   │   ├── sync.js                # Database synchronization module
-│   │   ├── api.js                 # Backend communication layer
-│   │   ├── data_processor.js      # Data validation and processing
-│   │   ├── config.js              # Configuration loader
-│   │   ├── backend/               # Rust knowledge graph server
-│   │   │   ├── src/
-│   │   │   │   ├── main.rs        # HTTP server orchestration
-│   │   │   │   ├── config.rs      # Configuration management
-│   │   │   │   ├── logging.rs     # Custom tracing formatter
-│   │   │   │   ├── api.rs         # API types, handlers, routes
-│   │   │   │   ├── utils.rs       # Utility functions
-│   │   │   │   ├── graph_manager.rs # Petgraph-based knowledge graph storage
-│   │   │   │   └── pkm_data.rs     # Data structures and validation
-│   │   │   └── Cargo.toml
-│   │   └── package.json
+│   │   ├── frontend/              # Logseq plugin (JavaScript)
+│   │   │   ├── index.js           # Plugin entry point (orchestration)
+│   │   │   ├── sync.js            # Database synchronization module
+│   │   │   ├── api.js             # Backend communication layer
+│   │   │   ├── data_processor.js  # Data validation and processing
+│   │   │   ├── package.json       # Plugin metadata and dependencies
+│   │   │   └── index.html         # Plugin loader
+│   │   └── backend/               # Rust knowledge graph server
+│   │       ├── src/
+│   │       │   ├── main.rs        # HTTP server orchestration
+│   │       │   ├── config.rs      # Configuration management
+│   │       │   ├── logging.rs     # Custom tracing formatter
+│   │       │   ├── api.rs         # API types, handlers, routes
+│   │       │   ├── utils.rs       # Utility functions
+│   │       │   ├── graph_manager.rs # Petgraph-based knowledge graph storage
+│   │       │   └── pkm_data.rs     # Data structures and validation
+│   │       ├── Cargo.toml
+│   │       └── config.yaml        # Backend configuration
 │   └── logseq_dummy_graph/        # Test data
 └── notes/                         # Additional documentation
 ```
@@ -258,7 +260,7 @@ Check Last Full Sync → Query All Pages/Blocks → Process ALL Content (No Filt
 - Model selection
 - API keys
 
-**PKM Extension Config** (`extensions/pkm_knowledge_graph/config.yaml`):
+**PKM Extension Config** (`extensions/pkm_knowledge_graph/backend/config.yaml`):
 - Backend server configuration (port, max port attempts)
 - Sync intervals and configuration:
   - `incremental_interval_hours`: Hours between incremental syncs (default: 2)
@@ -270,7 +272,7 @@ Check Last Full Sync → Query All Pages/Blocks → Process ALL Content (No Filt
 
 ## Testing
 
-- **JavaScript Plugin**: `npm test` (in extensions/pkm_knowledge_graph/) - Jest test suite with comprehensive coverage:
+- **JavaScript Plugin**: `npm test` (in extensions/pkm_knowledge_graph/frontend/) - Jest test suite with comprehensive coverage:
   - `data_processor.test.js`: Tests for reference extraction and data validation
   - `sync.test.js`: Tests for sync status logic, tree traversal utilities
   - Browser environment mocking for Logseq plugin testing

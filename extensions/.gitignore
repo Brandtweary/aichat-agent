@@ -1,15 +1,15 @@
 # Knowledge graph backend
-backend/data/*
-!backend/data/.gitkeep
-pkm_knowledge_graph_server.json
+pkm_knowledge_graph/backend/data/*
+!pkm_knowledge_graph/backend/data/.gitkeep
+pkm_knowledge_graph/backend/pkm_knowledge_graph_server.json
 
 # Rust build artifacts
-/backend/target/
-/backend/Cargo.lock
+pkm_knowledge_graph/backend/target/
+pkm_knowledge_graph/backend/Cargo.lock
 
 # Node.js dependencies
-/node_modules/
-/dist/
+pkm_knowledge_graph/frontend/node_modules/
+pkm_knowledge_graph/frontend/dist/
 
 # Build outputs
 /build/
@@ -36,4 +36,4 @@ yarn-error.log*
 .env.production.local
 
 # Configuration files
-config.yaml
+pkm_knowledge_graph/backend/config.yaml

@@ -46,7 +46,7 @@ cargo build
 
 **2. Configure the extension:**
 ```bash
-cd extensions/pkm_knowledge_graph
+cd extensions/pkm_knowledge_graph/backend
 cp config.example.yaml config.yaml
 # Edit config.yaml if needed (defaults usually work)
 ```
@@ -55,7 +55,7 @@ cp config.example.yaml config.yaml
 - Open Logseq
 - Go to Settings → Advanced → Developer mode (enable it)
 - Go to Settings → Plugins → Load unpacked plugin
-- Select the `extensions/pkm_knowledge_graph` directory
+- Select the `extensions/pkm_knowledge_graph/frontend` directory
 - The plugin should appear in your plugins list
 
 **4. Start the system:**
@@ -102,7 +102,7 @@ The knowledge graph runs in the background - you continue using Logseq normally 
 
 The extension uses its own configuration file separate from the main AIChat configuration:
 
-1. Copy `extensions/pkm_knowledge_graph/config.example.yaml` to `extensions/pkm_knowledge_graph/config.yaml`
+1. Copy `extensions/pkm_knowledge_graph/backend/config.example.yaml` to `extensions/pkm_knowledge_graph/backend/config.yaml`
 2. Edit the settings as needed (see config.yaml for available options)
 
 **Key Configuration Options:**
@@ -210,7 +210,7 @@ cargo test
 
 **Frontend Plugin (JavaScript)**
 ```bash
-cd extensions/pkm_knowledge_graph
+cd extensions/pkm_knowledge_graph/frontend
 
 # Install dependencies
 npm install

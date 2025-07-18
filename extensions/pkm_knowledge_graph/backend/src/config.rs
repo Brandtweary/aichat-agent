@@ -250,10 +250,11 @@ pub fn load_config() -> Config {
 // Validate that JavaScript plugin configuration matches Rust configuration
 pub fn validate_js_plugin_config(config: &Config) -> Result<(), Box<dyn Error>> {
     // api.js is always at a fixed location relative to this source file
-    // From backend/src/config.rs to api.js is ../../api.js
-    let source_file = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let api_js_path = source_file.parent()
+    // From backend/ to frontend/api.js is ../frontend/api.js
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let api_js_path = manifest_dir.parent()
         .ok_or("Could not get parent of backend directory")?
+        .join("frontend")
         .join("api.js");
     
     if !api_js_path.exists() {

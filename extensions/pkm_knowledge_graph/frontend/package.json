@@ -7,6 +7,7 @@
   "license": "MIT",
   "logseq": {
     "id": "logseq-knowledge-graph",
+    "title": "Cyberorganism",
     "icon": "icon.png"
   },
   "dependencies": {
