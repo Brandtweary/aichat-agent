@@ -1,12 +1,12 @@
 [package]
-name = "cyberorganism"
+name = "cymbiont"
 version = "0.1.0"
 edition = "2021"
 authors = ["sigoden <sigoden@gmail.com>", "Brandt Weary <brandtweary@gmail.com>"]
 description = "Chat interface for knowledge graphs, based on AIChat"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/Brandtweary/aichat-cyberorganism"
-repository = "https://github.com/Brandtweary/aichat-cyberorganism"
+homepage = "https://github.com/Brandtweary/aichat-cymbiont"
+repository = "https://github.com/Brandtweary/aichat-cymbiont"
 categories = ["command-line-utilities"]
 keywords = ["llm", "cli", "ai", "knowledge-graph"]
 

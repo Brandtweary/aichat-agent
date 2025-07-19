@@ -1,11 +1,11 @@
-# CYBERORGANISM DEVELOPMENT GUIDE
+# CYMBIONT DEVELOPMENT GUIDE
 
 ## Build/Test Commands
 ```bash
 cd extensions/pkm_knowledge_graph/backend/  # cd into backend directory once at session start
 
-# In cyberorganism root (rarely needed while developing backend - cargo will warn about this)
-cargo build                      # Build cyberorganism
+# In cymbiont root (rarely needed while developing backend - cargo will warn about this)
+cargo build                      # Build cymbiont
 cargo test                       # Run all tests
 
 # In extensions/pkm_knowledge_graph/backend/ (you should be here most of the time)
@@ -26,11 +26,11 @@ npx eslint *.js                  # Run linter to find unused code and errors
 - `--force-full-sync`: Force a full database sync (needed if block content is being modified by external tools)
 
 ## Architecture
-- See `cyberorganism_architecture.md` for comprehensive codebase architecture
+- See `cymbiont_architecture.md` for comprehensive codebase architecture
 
 ### Core Directories
 - **src/**: AIChat core - LLM providers, CLI, RAG, function calling (minimize changes)
-- **extensions/**: Cyberorganism-specific features
+- **extensions/**: Cymbiont-specific features
   - **pkm_knowledge_graph/**: Transforms PKM tools into queryable knowledge graphs
     - JavaScript: Logseq plugin for real-time sync
     - **backend/**: Rust server managing graph operations
@@ -99,5 +99,5 @@ npx eslint *.js                  # Run linter to find unused code and errors
 
 ## Continuous Documentation
 
-- Keep the architecture document (`cyberorganism_architecture.md`) up to date
+- Keep the architecture document (`cymbiont_architecture.md`) up to date
 - When updating documentation, read it entirely first to avoid redundancy

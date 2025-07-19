@@ -316,9 +316,9 @@
  ;; Example usage:
  ;; :block-hidden-properties #{:public :icon}
  
- ;; Hide the cyberorganism timestamp property
+ ;; Hide the cymbiont timestamp property
  ;; TODO: This should be done programmatically by the plugin in the future
- :block-hidden-properties #{:cyberorganism-updated-ms}
+ :block-hidden-properties #{:cymbiont-updated-ms}
 
  ;; Create a page for all properties.
  ;; Default value: true

@@ -65,19 +65,19 @@
  * 
  * How it works:
  * 1. Pages use Logseq's built-in `updatedAt` field for change detection
- * 2. Blocks use custom `cyberorganism-updated-ms` properties managed by this plugin
+ * 2. Blocks use custom `cymbiont-updated-ms` properties managed by this plugin
  * 3. On each sync, only pages/blocks modified since the last sync are processed
  * 
  * Block Timestamp Management:
  * - Since Logseq blocks don't have reliable built-in timestamps, we add custom properties
- * - The property name is converted from kebab-case to camelCase by Logseq: `cyberorganismUpdatedMs`
+ * - The property name is converted from kebab-case to camelCase by Logseq: `cymbiontUpdatedMs`
  * - Timestamps are set when blocks are first synced or when changes are detected
  * - Empty blocks and blocks with only properties are filtered out to avoid clutter
  * 
  * Configuration Required:
  * Users must add the following to their Logseq config.edn to hide the timestamp property:
  * ```clojure
- * :block-hidden-properties #{:cyberorganism-updated-ms}
+ * :block-hidden-properties #{:cymbiont-updated-ms}
  * ```
  * TODO: Implement programmatic config.edn editing to automate this
  * 
@@ -244,7 +244,7 @@ async function processTimestampQueue() {
   try {
     for (const blockUuid of blocksToUpdate) {
       try {
-        await logseq.Editor.upsertBlockProperty(blockUuid, 'cyberorganism-updated-ms', currentTimestamp);
+        await logseq.Editor.upsertBlockProperty(blockUuid, 'cymbiont-updated-ms', currentTimestamp);
       } catch (error) {
         KnowledgeGraphAPI.log.error(`Failed to update timestamp for block ${blockUuid}`, {error: error.message});
       }
@@ -290,7 +290,7 @@ async function handleDBChanges(changesData) {
           // If the block has our timestamp property and no other meaningful changes, skip it
           try {
             const fullBlock = await logseq.Editor.getBlock(block.uuid);
-            if (fullBlock && fullBlock.properties && fullBlock.properties['cyberorganismUpdatedMs']) {
+            if (fullBlock && fullBlock.properties && fullBlock.properties['cymbiontUpdatedMs']) {
               // Block already has our timestamp - this might be a change from our own timestamp update
               // Skip adding to queue to prevent infinite loops
               continue;
@@ -412,7 +412,7 @@ async function main() {
     
     // Show single UI notification for successful plugin load
     if (result) {
-      logseq.App.showMsg('Cyberorganism initialized', 'success');
+      logseq.App.showMsg('Cymbiont initialized', 'success');
     }
   } catch (error) {
     KnowledgeGraphAPI.log.error('Failed to send plugin initialization signal', {error: error.message});

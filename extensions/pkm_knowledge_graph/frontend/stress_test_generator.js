@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const GRAPH_DIR = '/home/brandt/projects/cyberorganism/extensions/logseq_dummy_graph/pages';
+const GRAPH_DIR = '/home/brandt/projects/cymbiont/extensions/logseq_dummy_graph/pages';
 const PAGE_COUNT = 2000;
 const BLOCKS_PER_PAGE = 10;
 const PREFIX = 'STRESS_';

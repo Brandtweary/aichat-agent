@@ -1,6 +1,6 @@
-# Cyberorganism Extensions
+# Cymbiont Extensions
 
-This directory contains the core components that power Cyberorganism's knowledge graph capabilities.
+This directory contains the core components that power Cymbiont's knowledge graph capabilities.
 
 ## Purpose
 
@@ -22,7 +22,7 @@ The extensions directory is organized as follows:
 
 ### PKM Knowledge Graph
 
-The `pkm_knowledge_graph` module enables Cyberorganism to transform your personal knowledge management system into a queryable knowledge graph. It consists of:
+The `pkm_knowledge_graph` module enables Cymbiont to transform your personal knowledge management system into a queryable knowledge graph. It consists of:
 
 - A Logseq plugin that syncs block and page data in real-time
 - A Rust backend server that maintains the knowledge graph structure
@@ -230,7 +230,7 @@ The backend server automatically:
 
 ## Development Guidelines
 
-When adding new features to Cyberorganism:
+When adding new features to Cymbiont:
 
 1. Try to keep changes to the original codebase minimal
 2. Place new functionality in this extensions directory when possible

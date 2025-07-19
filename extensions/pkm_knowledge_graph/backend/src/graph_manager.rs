@@ -2,7 +2,7 @@
  * @module graph_manager
  * @description Core knowledge graph storage engine using petgraph
  * 
- * This module is the heart of Cyberorganism's knowledge graph implementation, providing
+ * This module is the heart of Cymbiont's knowledge graph implementation, providing
  * persistent graph storage using petgraph's StableGraph structure. All PKM data (pages
  * and blocks from Logseq) are stored as nodes in a directed graph with typed edges
  * representing various relationships.

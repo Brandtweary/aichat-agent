@@ -1,12 +1,12 @@
-# Cyberorganism
+# Cymbiont
 
-> Cyberorganism is a fork of [AIChat](https://github.com/sigoden/aichat) that adds knowledge graph capabilities for personal knowledge management systems.
+> Cymbiont is a fork of [AIChat](https://github.com/sigoden/aichat) that adds knowledge graph capabilities for personal knowledge management systems.
 > 
-> **For comprehensive Cyberorganism setup and usage documentation, see [extensions/README.md](./extensions/README.md)**
+> **For comprehensive Cymbiont setup and usage documentation, see [extensions/README.md](./extensions/README.md)**
 
-Cyberorganism transforms your personal knowledge management system into an intelligent, queryable knowledge graph. By connecting to tools like Logseq, it creates a living network of your ideas that AI agents can navigate and reason through.
+Cymbiont transforms your personal knowledge management system into an intelligent, queryable knowledge graph. By connecting to tools like Logseq, it creates a living network of your ideas that AI agents can navigate and reason through.
 
-At its core, Cyberorganism is an LLM agent that understands the deep structure of your knowledge—not just individual notes, but the rich web of connections between them. This enables contextual retrieval and synthesis that goes far beyond traditional RAG systems.
+At its core, Cymbiont is an LLM agent that understands the deep structure of your knowledge—not just individual notes, but the rich web of connections between them. This enables contextual retrieval and synthesis that goes far beyond traditional RAG systems.
 
 ### Key Components
 
@@ -18,8 +18,8 @@ At its core, Cyberorganism is an LLM agent that understands the deep structure o
 
 ```bash
 # Clone the repository
-git clone https://github.com/Brandtweary/cyberorganism.git
-cd cyberorganism
+git clone https://github.com/Brandtweary/cymbiont.git
+cd cymbiont
 
 # Install with Cargo
 cargo install --path .
@@ -27,7 +27,7 @@ cargo install --path .
 
 ### Pre-built Binaries
 
-Download pre-built binaries from [GitHub Releases](https://github.com/Brandtweary/cyberorganism/releases), extract them, and add the `cyberorganism` binary to your `$PATH`.
+Download pre-built binaries from [GitHub Releases](https://github.com/Brandtweary/cymbiont/releases), extract them, and add the `cymbiont` binary to your `$PATH`.
 
 ## Features
 
@@ -37,7 +37,7 @@ Integrate seamlessly with over 20 leading LLM providers through a unified interf
 
 ### CMD Mode
 
-Explore powerful command-line functionalities with Cyberorganism's CMD mode.
+Explore powerful command-line functionalities with Cymbiont's CMD mode.
 
 ![aichat-cmd](https://github.com/user-attachments/assets/6c58c549-1564-43cf-b772-e1c9fe91d19c)
 
@@ -49,7 +49,7 @@ Experience an interactive Chat-REPL with features like tab autocompletion, multi
 
 ### Shell Assistant
 
-Elevate your command-line efficiency. Describe your tasks in natural language, and let Cyberorganism transform them into precise shell commands. Cyberorganism intelligently adjusts to your OS and shell environment.
+Elevate your command-line efficiency. Describe your tasks in natural language, and let Cymbiont transform them into precise shell commands. Cymbiont intelligently adjusts to your OS and shell environment.
 
 ![aichat-execute](https://github.com/user-attachments/assets/0c77e901-0da2-4151-aefc-a2af96bbb004)
 
@@ -59,14 +59,14 @@ Accept diverse input forms such as stdin, local files and directories, and remot
 
 | Input             | CMD                                  | REPL                             |
 | ----------------- | ------------------------------------ | -------------------------------- |
-| CMD               | `cyberorganism hello`                       |                                  |
-| STDIN             | `cat data.txt \| cyberorganism`             |                                  |
+| CMD               | `cymbiont hello`                       |                                  |
+| STDIN             | `cat data.txt \| cymbiont`             |                                  |
 | Last Reply        |                                      | `.file %%`                       |
-| Local files       | `cyberorganism -f image.png -f data.txt`    | `.file image.png data.txt`       |
-| Local directories | `cyberorganism -f dir/`                     | `.file dir/`                     |
-| Remote URLs       | `cyberorganism -f https://example.com`      | `.file https://example.com`      |
-| External commands | ```cyberorganism -f '`git diff`'```         | ```.file `git diff` ```          |
-| Combine Inputs    | `cyberorganism -f dir/ -f data.txt explain` | `.file dir/ data.txt -- explain` |
+| Local files       | `cymbiont -f image.png -f data.txt`    | `.file image.png data.txt`       |
+| Local directories | `cymbiont -f dir/`                     | `.file dir/`                     |
+| Remote URLs       | `cymbiont -f https://example.com`      | `.file https://example.com`      |
+| External commands | ```cymbiont -f '`git diff`'```         | ```.file `git diff` ```          |
+| Combine Inputs    | `cymbiont -f dir/ -f data.txt explain` | `.file dir/ data.txt -- explain` |
 
 ### Role
 
@@ -116,10 +116,10 @@ AI Agent = Instructions (Prompt) + Tools (Function Callings) + Documents (RAG).
 
 ### Local Server Capabilities
 
-Cyberorganism includes a lightweight built-in HTTP server for easy deployment.
+Cymbiont includes a lightweight built-in HTTP server for easy deployment.
 
 ```
-$ cyberorganism --serve
+$ cymbiont --serve
 Chat Completions API: http://127.0.0.1:8000/v1/chat/completions
 Embeddings API:       http://127.0.0.1:8000/v1/embeddings
 Rerank API:           http://127.0.0.1:8000/v1/rerank
@@ -155,13 +155,13 @@ A web platform to compare different LLMs side-by-side.
 
 ## Custom Themes
 
-Cyberorganism supports custom dark and light themes, which highlight response text and code blocks.
+Cymbiont supports custom dark and light themes, which highlight response text and code blocks.
 
 ![aichat-themes](https://github.com/sigoden/aichat/assets/4012553/29fa8b79-031e-405d-9caa-70d24fa0acf8)
 
 ## Documentation
 
-For comprehensive documentation on the base AIChat features, please visit the [AIChat repository](https://github.com/sigoden/aichat). The following guides from AIChat apply to Cyberorganism:
+For comprehensive documentation on the base AIChat features, please visit the [AIChat repository](https://github.com/sigoden/aichat). The following guides from AIChat apply to Cymbiont:
 
 - [Chat-REPL Guide](https://github.com/sigoden/aichat/wiki/Chat-REPL-Guide)
 - [Command-Line Guide](https://github.com/sigoden/aichat/wiki/Command-Line-Guide)
@@ -178,6 +178,6 @@ For comprehensive documentation on the base AIChat features, please visit the [A
 
 Copyright (c) 2023-2025 aichat-developers.
 
-Cyberorganism is made available under the terms of either the MIT License or the Apache License 2.0, at your option.
+Cymbiont is made available under the terms of either the MIT License or the Apache License 2.0, at your option.
 
 See the LICENSE-APACHE and LICENSE-MIT files for license details.

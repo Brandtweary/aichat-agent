@@ -1,4 +1,4 @@
-# Cyberorganism Architecture
+# Cymbiont Architecture
 
 A guide to core modules, system design, and data flow for developers.
 
@@ -15,8 +15,8 @@ A guide to core modules, system design, and data flow for developers.
   - Updated api.js validation path in config.rs to find frontend files
   - Server info file remains backend-specific (not read by frontend due to Logseq sandbox)
 - **Plugin Enhancements**:
-  - Added `"title": "Cyberorganism"` to package.json for proper display name
-  - Plugin now shows as "Cyberorganism" instead of folder name in Logseq
+  - Added `"title": "Cymbiont"` to package.json for proper display name
+  - Plugin now shows as "Cymbiont" instead of folder name in Logseq
   - All relative paths within frontend remain unchanged
 - **Migration Preparation**:
   - Moved `.gitignore` to extensions root with updated paths
@@ -25,19 +25,19 @@ A guide to core modules, system design, and data flow for developers.
 
 ## System Overview
 
-Cyberorganism is a self-organizing knowledge graph agent that transforms personal knowledge management systems into queryable, intelligent networks. Built on top of AIChat, it maintains clean separation between the base LLM functionality and knowledge graph extensions.
+Cymbiont is a self-organizing knowledge graph agent that transforms personal knowledge management systems into queryable, intelligent networks. Built on top of AIChat, it maintains clean separation between the base LLM functionality and knowledge graph extensions.
 
 ## Repository Layout
 
 ```
-cyberorganism/
+cymbiont/
 ├── src/                           # AIChat core (minimal modifications)
 │   ├── main.rs                    # CLI entry point
 │   ├── config/                    # Configuration management
 │   ├── client/                    # LLM provider integrations
 │   ├── rag/                       # RAG implementation
 │   └── function/                  # Function calling framework
-├── extensions/                    # Cyberorganism-specific features
+├── extensions/                    # Cymbiont-specific features
 │   ├── pkm_knowledge_graph/       # Knowledge graph integration
 │   │   ├── frontend/              # Logseq plugin (JavaScript)
 │   │   │   ├── index.js           # Plugin entry point (orchestration)
@@ -64,7 +64,7 @@ cyberorganism/
 ## Core Components
 
 ### AIChat Base (src/)
-The foundation provides CLI interface, multi-provider LLM support, RAG capabilities, and function calling. Cyberorganism preserves all AIChat functionality while adding knowledge graph capabilities through the extension system.
+The foundation provides CLI interface, multi-provider LLM support, RAG capabilities, and function calling. Cymbiont preserves all AIChat functionality while adding knowledge graph capabilities through the extension system.
 
 ### PKM Knowledge Graph Extension
 
@@ -81,7 +81,7 @@ The foundation provides CLI interface, multi-provider LLM support, RAG capabilit
     - Real-time: Individual changes synced immediately (handled by index.js)
     - Incremental: Every 2 hours (default), syncs only modified content
     - Full: Every 7 days (default, disabled), re-indexes entire PKM
-  - Filters pages by built-in `updatedAt` field, blocks by custom `cyberorganism-updated-ms` property
+  - Filters pages by built-in `updatedAt` field, blocks by custom `cymbiont-updated-ms` property
   - Manages sync status checking and timestamp updates
   - Handles tree traversal for block counting and ID collection
   - Sends all PKM IDs to /sync/verify for deletion detection
@@ -227,7 +227,7 @@ Logseq DB Change → onChanged Event → Validate Data → Batch Queue → HTTP 
 ```
 Check Last Incremental Sync → Query All Pages/Blocks → Filter by Modified Date → Process in Batches → Send PKM IDs for Deletion Detection → Update Backend → Update Incremental Sync Timestamp
 ```
-- **Timestamp Filtering**: Pages use built-in `updatedAt` field; blocks use custom `cyberorganism-updated-ms` property
+- **Timestamp Filtering**: Pages use built-in `updatedAt` field; blocks use custom `cymbiont-updated-ms` property
 - **Efficient**: Only processes content modified since last incremental sync
 
 ### Full Database Sync (Every 7 Days by default, disabled)
@@ -278,7 +278,7 @@ Check Last Full Sync → Query All Pages/Blocks → Process ALL Content (No Filt
   - Browser environment mocking for Logseq plugin testing
 - **Code Quality**: `npx eslint *.js` - ESLint configured for browser, Jest, and Node.js environments
 - **Rust Backend**: `cargo test` (in extensions/pkm_knowledge_graph/backend/) - Unit tests for core modules (quiet by default)
-- **Rust Core**: `cargo test` (in cyberorganism root) - Unit tests for AIChat core functionality (rarely needed)
+- **Rust Core**: `cargo test` (in cymbiont root) - Unit tests for AIChat core functionality (rarely needed)
 - **Development**: `RUST_LOG=debug cargo run` (from backend directory) - Run backend server with default 3-second duration for testing
 - **Force Incremental Sync**: `cargo run -- --force-incremental-sync` - Override sync status to force an incremental sync on next plugin connection
 - **Force Full Sync**: `cargo run -- --force-full-sync` - Override sync status to force a full database sync on next plugin connection

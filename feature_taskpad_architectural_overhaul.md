@@ -1,17 +1,17 @@
 # Feature Taskpad: Architectural Overhaul
 
 ## Feature Description
-Transform the current Cyberorganism fork into a focused Rust library called "aichat-agent" that exposes only AIChat's agent functionality, and create a standalone Cyberorganism repository that uses this library directly. Cyberorganism will import AIChat's agent functionality as a library, control the agent loop using AIChat's internals, and massively extend it with knowledge graph integration. No HTTP overhead, direct function calls, and complete control over agent behavior while leveraging AIChat's LLM provider abstractions.
+Transform the current Cymbiont fork into a focused Rust library called "aichat-agent" that exposes only AIChat's agent functionality, and create a standalone Cymbiont repository that uses this library directly. Cymbiont will import AIChat's agent functionality as a library, control the agent loop using AIChat's internals, and massively extend it with knowledge graph integration. No HTTP overhead, direct function calls, and complete control over agent behavior while leveraging AIChat's LLM provider abstractions.
 
 ## Specifications
 - Current fork becomes "aichat-agent" - focused library exposing only agent functionality
-- New standalone "cyberorganism" repository imports this library
+- New standalone "cymbiont" repository imports this library
 - No HTTP/server infrastructure - direct Rust function calls
 - Minimal API surface: agent creation, tool registration, config, LLM client access
-- Cyberorganism controls agent loop but uses AIChat's internals
+- Cymbiont controls agent loop but uses AIChat's internals
 - Fork maintained as git submodule for easy source inspection
-- Both RAG (from AIChat) and KG (from cyberorganism) available for comparison
-- No general-purpose API - specifically designed for Cyberorganism's needs
+- Both RAG (from AIChat) and KG (from cymbiont) available for comparison
+- No general-purpose API - specifically designed for Cymbiont's needs
 - Zero overhead from serialization or network calls
 
 ## Relevant Components
@@ -25,11 +25,11 @@ Transform the current Cyberorganism fork into a focused Rust library called "aic
 - `src/rag/`: RAG functionality to be extended
 - Current usage: Internal modules to be made public
 
-### Cyberorganism Extensions (to be migrated)
+### Cymbiont Extensions (to be migrated)
 - `extensions/pkm_knowledge_graph/backend/`: Core KG implementation
 - `extensions/pkm_knowledge_graph/frontend/`: Logseq plugin
-- `cyberorganism_architecture.md`: Documentation
-- Current usage: To become the core of standalone cyberorganism
+- `cymbiont_architecture.md`: Documentation
+- Current usage: To become the core of standalone cymbiont
 
 ### Library API Design (new)
 - Public traits: Client, Agent, Functions
@@ -60,11 +60,16 @@ Transform the current Cyberorganism fork into a focused Rust library called "aic
 
 ### 3. Fork Preparation
 - [ ] Create comprehensive backup of current repository
-- [ ] Document all cyberorganism-specific changes
-- [ ] Tag current state as "pre-library-conversion"
-- [ ] Create branch for library conversion work
+- [ ] Document all cymbiont-specific changes
+- [ ] Tag current state as "pre-cymbiont-migration"
+- [ ] Create new feature branch for library conversion
+- [ ] **IMPORTANT**: Restore fork to upstream AIChat state
+  - The current fork has too many cymbiont-specific changes
+  - Creating a thin API wrapper requires starting fresh from upstream
+  - All cymbiont changes will be migrated to the new cymbiont repo separately
+- [ ] Reset the feature branch to upstream AIChat main branch
 
-### 4. Library Conversion
+### 4. Library Conversion (on clean upstream code)
 - [ ] Create src/lib.rs with public exports
 - [ ] Make necessary modules public (client, agent, config)
 - [ ] Expose key structs and traits
@@ -76,24 +81,64 @@ Transform the current Cyberorganism fork into a focused Rust library called "aic
 
 ### 5. Git Repository Setup
 - [x] Rename current fork to "aichat-agent" (completed: https://github.com/Brandtweary/aichat-agent.git)
-- [x] Create new "cyberorganism" repository on GitHub (completed: https://github.com/Brandtweary/cyberorganism.git)
+- [x] Create new "cymbiont" repository on GitHub (completed: https://github.com/Brandtweary/cymbiont.git)
 - [ ] Update local git remotes to point to aichat-agent
-- [ ] Add aichat-agent as git submodule in cyberorganism
+- [ ] Add aichat-agent as git submodule in cymbiont
 - [ ] Configure Cargo.toml to use local path dependency
 - [ ] Set up workspace if using multiple crates
 - [ ] Test submodule workflow
 
-### 6. Cyberorganism Core Implementation
-- [ ] Initialize standalone Rust project
-- [ ] Move extensions/pkm_knowledge_graph/ to new repo
-- [ ] Import AIChat library and test basic usage
-- [ ] Implement custom agent that uses KG context
-- [ ] Create simplified API for agent creation
-- [ ] Build KG-enhanced tool set
-- [ ] Integrate PKM sync with agent capabilities
+### 6. Cymbiont Core Implementation (separate from library work)
+- [ ] **Migration Strategy**:
+  - Create temporary `cymbiont/` folder inside aichat-agent root (no naming conflicts)
+  - COPY files (don't move) to preserve originals during migration
+  - Connect to remote cymbiont repo once satisfied
+  - Move folder outside aichat-agent when ready (cymbiont will contain aichat-agent as submodule)
+- [ ] **New Repository Structure**:
+  ```
+  cymbiont/
+  ├── src/                    # Backend server code
+  ├── tests/                  # Backend tests
+  ├── data/                   # Knowledge graph persistence
+  │   └── archived_nodes/     # Deleted node archives
+  ├── logseq_plugin/          # Renamed from frontend/
+  ├── logseq_databases/       # Test graphs and multi-graph support
+  │   └── dummy_graph/        # Current test graph
+  ├── aichat-agent/           # Submodule of the library fork
+  ├── Cargo.toml              
+  ├── Cargo.lock
+  ├── config.yaml
+  ├── config.example.yaml
+  ├── cymbiont_architecture.md
+  ├── CLAUDE.md
+  ├── README.md               # Complete rewrite focusing on KG agent
+  └── .gitignore
+  ```
+- [ ] **Migration Strategy (Simplified)**:
+  - [ ] Copy entire backend/* contents to cymbiont/
+  - [ ] Copy entire frontend/* to cymbiont/logseq_plugin/
+  - [ ] Copy entire logseq_dummy_graph/* to cymbiont/logseq_databases/dummy_graph/
+  - [ ] Copy cymbiont_architecture.md to cymbiont/
+  - [ ] Copy CLAUDE.md to cymbiont/
+  - [ ] Create new README.md from scratch
+  - [ ] Add .gitignore (can adapt from current one)
+- [ ] **Post-Migration Code Updates**:
+  - [ ] Update hardcoded file paths for new structure:
+    - Backend config.yaml location
+    - Server info JSON file path
+    - Archive directory path
+    - Knowledge graph persistence path
+    - Logseq dummy graph references
+  - [ ] Adjust imports and module paths
+  - [ ] Update config file locations
+  - [ ] Fix references to aichat-agent library
+  - [ ] Update any relative paths in JavaScript plugin
+  - [ ] Ensure stress test generator points to correct paths
+- [ ] Import aichat-agent as git submodule
+- [ ] Test basic compilation and functionality
 
 ### 7. Agent Integration
-- [ ] Create cyberorganism Agent wrapper
+- [ ] Create cymbiont Agent wrapper
 - [ ] Implement KG-aware context injection
 - [ ] Add custom tools for KG queries
 - [ ] Build agent loop that leverages both RAG and KG
@@ -107,17 +152,14 @@ Transform the current Cyberorganism fork into a focused Rust library called "aic
 
 ### 9. Documentation and Polish
 - [ ] Write library API documentation
-- [ ] Create cyberorganism user guide
+- [ ] Create cymbiont user guide
 - [ ] Document architecture decisions
-- [ ] Write migration guide from fork version
-- [ ] Create examples for common use cases
-- [ ] Document RAG vs KG comparison results
 - [ ] Add inline code documentation
 
 ### 10. Release and Maintenance
 - [ ] Clean up any remaining fork artifacts
 - [ ] Tag initial library release
-- [ ] Create cyberorganism v1.0 release
+- [ ] Create cymbiont v1.0 release
 - [ ] Set up CI/CD for both repos
 - [ ] Plan upstream contribution strategy
 - [ ] Document maintenance workflow
@@ -127,10 +169,9 @@ Transform the current Cyberorganism fork into a focused Rust library called "aic
 - Direct access to AIChat internals enables tight integration
 - Submodule keeps source visible for debugging and learning
 - Fork maintenance burden already exists - library adds minimal complexity
-- Clear separation: aichat-agent = LLM/agent core, cyberorganism = KG enhancement
+- Clear separation: aichat-agent = LLM/agent core, cymbiont = KG enhancement
 - No need for server/client architecture when everything runs locally
-- Focused API for Cyberorganism's specific needs - not general purpose
-- Skip PR/issue - Cyberorganism needs deep, non-standard integrations
+- Focused API for Cymbiont's specific needs - not general purpose
 
 ## Future Tasks
 - Performance benchmarking and optimization
@@ -140,7 +181,6 @@ Transform the current Cyberorganism fork into a focused Rust library called "aic
 - Build advanced KG algorithms for retrieval
 - Add support for multiple PKM tools beyond Logseq
 - Implement agent collaboration features
-- Consider WASM compilation for browser usage
 
 ## Final Implementation
 (To be completed when feature is finished)

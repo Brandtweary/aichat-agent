@@ -300,7 +300,7 @@
         }
         
         // Check for our custom timestamp property
-        let blockUpdatedMs = fullBlock.properties?.['cyberorganismUpdatedMs'];
+        let blockUpdatedMs = fullBlock.properties?.['cymbiontUpdatedMs'];
         let shouldSync = true;
         
         if (lastSyncDate) {
