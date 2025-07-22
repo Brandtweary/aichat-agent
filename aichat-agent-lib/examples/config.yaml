@@ -1,0 +1,15 @@
+# Example AIChat configuration for aichat-agent examples
+# See https://github.com/sigoden/aichat/blob/main/config.example.yaml for all options
+
+model: claude:claude-3-7-sonnet-20250219
+temperature: 0.3
+stream: true
+
+clients:
+- type: claude
+  api_key: YOUR_ANTHROPIC_API_KEY_HERE
+
+# Optional: Customize other settings
+save: false              # Don't save conversations
+wrap: no                 # Don't wrap output  
+wrap_code: false         # Don't wrap code blocks

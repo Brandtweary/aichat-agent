@@ -4,7 +4,9 @@
 [![Crates](https://img.shields.io/crates/v/aichat.svg)](https://crates.io/crates/aichat)
 [![Discord](https://img.shields.io/discord/1226737085453701222?label=Discord)](https://discord.gg/mr3ZZUB9hG)
 
-AIChat is an all-in-one LLM CLI tool featuring Shell Assistant, CMD & REPL Mode, RAG, AI Tools & Agents, and More. 
+AIChat is an all-in-one LLM CLI tool featuring Shell Assistant, CMD & REPL Mode, RAG, AI Tools & Agents, and More.
+
+> **Library API Available**: This fork exposes AIChat's functionality as a Rust library in [`aichat-agent-lib/`](./aichat-agent-lib/). The original AIChat doesn't provide a public API. See [`aichat-agent-lib/README.md`](./aichat-agent-lib/README.md) for details. 
 
 ## Install
 
