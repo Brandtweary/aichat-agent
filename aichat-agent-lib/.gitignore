@@ -21,6 +21,9 @@ Thumbs.db
 .env
 .env.local
 
+# Example config with API keys
+examples/config.yaml
+
 # Documentation build
 /doc/
 

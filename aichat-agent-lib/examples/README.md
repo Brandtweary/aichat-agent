@@ -4,20 +4,18 @@ This directory contains example applications demonstrating the aichat-agent libr
 
 ## Configuration
 
-Before running examples, update `config.yaml` with your API keys:
+Before running examples, create a `config.yaml` file from the template:
 
-1. **For Claude API**: Update the `api_key` field under the `claude` client
-2. **For OpenAI API**: Uncomment the `openai` client section and add your key
-3. **For local Ollama**: Uncomment the `ollama` client section (no key needed)
-
-Example config.yaml setup:
-
-```yaml
-model: openai:gpt-4o-mini
-clients:
-- type: openai
-  api_key: sk-your-actual-openai-key
+```bash
+cp config.example.yaml config.yaml
 ```
+
+Then update `config.yaml` with your API key:
+
+1. Replace `YOUR_ANTHROPIC_API_KEY_HERE` with your actual Claude API key
+2. Optionally adjust the model, temperature, and other settings
+
+**Note**: The `config.yaml` file is gitignored to prevent accidental API key commits.
 
 ## Running Examples
 
@@ -40,10 +38,3 @@ The math assistant can:
 - Calculate statistics (mean, median, std dev)
 - Compute geometric properties (area, perimeter)
 - Explain mathematical concepts step by step
-
-## Security Note
-
-The current `config.yaml` contains a real API key for testing purposes. In production:
-1. Never commit API keys to version control
-2. Use environment variables or secure secret management
-3. Rotate keys regularly

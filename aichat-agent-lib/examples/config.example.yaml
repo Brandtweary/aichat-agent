@@ -1,7 +1,7 @@
 # Example AIChat configuration for aichat-agent examples
 # See https://github.com/sigoden/aichat/blob/main/config.example.yaml for all options
 
-model: claude:claude-3-7-sonnet-20250219
+model: claude:claude-3-5-haiku-20241022
 temperature: 0.3
 stream: true
 
